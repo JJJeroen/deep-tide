@@ -75,12 +75,7 @@
   <button data-tool="pollute" class="harm">Pollute</button>
   <button data-tool="invader" class="harm">Release invader</button>
   <button data-tool="stock">Stock</button>
-  <select id="stockSel" title="Species to stock">
-    <option value="1">Grazers</option>
-    <option value="2">Hunters</option>
-    <option value="3">Jellyfish</option>
-    <option value="0">Plankton</option>
-  </select>
+  <select id="stockSel" title="Species to stock"></select>
   <span class="sep"></span>
   <label class="s">Warmth <input type="range" id="temp" min="0" max="100" value="50"></label>
   <span class="sep"></span>
@@ -104,7 +99,9 @@ let PK_CAP = 900;
 //       catch = {min,k}: success chance min(1, min + preyCount/k), so scarce prey is harder to catch.
 // flee: {from:[ids], radius, burst, cost}. filter: eats whatever drifts into reach instead of chasing. move:'drift' = jelly-style bobbing.
 // sun: {y,pull} pulls toward a preferred depth. crowd: {k,tax} extra upkeep when the species is over k individuals.
-// satiate: stop hunting above this fraction of max energy. recolonize: {after,n,needs:{id:minCount}}.
+// satiate: stop hunting above this fraction of max energy.
+// recolonize: {after, natural, n, needs:{id:minCount}, rescue:{below,every}}: `after` = seconds to return after a player-caused loss (n arrivals),
+//   `natural` = quick silent return after a chance extinction, rescue = one arrival every `every` s while below `below` individuals.
 const SPECIES = [
   { id: 'plankton', name: 'Plankton', color: '#8fe3a0', plant: true, start: 500, stock: 40 },
   { id: 'grazer', name: 'Grazers', color: '#5fd4d0', shape: 'fish', size: 5,
@@ -452,7 +449,7 @@ function sample() {
   const prev = S.hist.length > 1 ? S.hist[S.hist.length - 2] : null;
   for (const s of SPECIES) {
     if (s.plant) continue;
-    if (s.invasive && prev && prev[s.i] > 0 && c[s.i] === 0) log(s.name + ' have been wiped out.', 'warn');
+    if (s.invasive && prev && prev[s.i] > 0 && c[s.i] === 0) log(s.name + ' have been wiped out.', 'good');
     if (s.bloom) {
       const f = 'bloom' + s.i;
       if (!S.flags[f] && c[s.i] >= s.bloom.at) { S.flags[f] = true; log(s.bloom.msg, 'warn'); }
@@ -684,7 +681,7 @@ function updateUI() {
     for (const sp of SPECIES) {
       const row = document.getElementById('row' + sp.i);
       row.querySelector('.n').textContent = S.counts[sp.i];
-      row.classList.toggle('extinct', S.counts[sp.i] === 0 && S.peak[sp.i] > 0);
+      row.classList.toggle('extinct', S.counts[sp.i] === 0 && S.peak[sp.i] > 0 && (sp.plant || sp.invasive || !sp.recolonize || S.harmed[sp.i] === 1));
       if (sp.invasive) row.style.display = S.peak[sp.i] > 0 ? '' : 'none';
     }
     document.getElementById('bioN').textContent = Math.round(biodiversity() * 100) + '%';
@@ -722,7 +719,7 @@ document.getElementById('stockSel').addEventListener('change', () => setTool('st
 document.getElementById('temp').addEventListener('input', e => { S.temp = e.target.value / 100; });
 document.getElementById('pause').addEventListener('click', e => { paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
 document.getElementById('speed').addEventListener('click', e => { speedMul = speedMul === 1 ? 2 : speedMul === 2 ? 4 : speedMul === 4 ? 0.5 : 1; e.target.textContent = speedMul + '×'; });
-document.getElementById('reset').addEventListener('click', () => { resetWorld(); logShown = 0; logEl.innerHTML = ''; document.getElementById('temp').value = 50; S.temp = 0.5; });
+document.getElementById('reset').addEventListener('click', () => { paused = false; speedMul = 1; document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on'); document.getElementById('speed').textContent = '1×'; resetWorld(); logShown = 0; logEl.innerHTML = ''; document.getElementById('temp').value = 50; S.temp = 0.5; });
 
 view.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !e.isPrimary) return;
