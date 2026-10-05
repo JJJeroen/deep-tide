@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Deep Tide</title>
+<style>
+  :root {
+    --bg: #02070d;
+    --panel: rgba(6, 22, 36, 0.78);
+    --line: rgba(140, 210, 230, 0.18);
+    --text: #d6eef5;
+    --dim: #7fa6b5;
+    --accent: #5fd4d0;
+    --danger: #ff6b8a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; touch-action: none; user-select: none; }
+  canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    backdrop-filter: blur(6px); padding: 10px 12px; }
+  #title { top: 12px; left: 12px; }
+  #title h1 { margin: 0; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+  #title p { margin: 2px 0 0; color: var(--dim); font-size: 12px; }
+  #stats { top: 12px; right: 12px; width: 230px; }
+  #stats h2, #log h2 { margin: 0 0 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 1px 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .row .n { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .row.extinct { opacity: .45; }
+  .row.extinct .n::after { content: " ✕"; color: var(--danger); }
+  #chart { width: 100%; height: 70px; display: block; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+  #bio { margin-top: 6px; color: var(--dim); font-size: 12px; display: flex; justify-content: space-between; }
+  #bio b { color: var(--text); font-weight: 600; }
+  #log { top: 12px; left: 50%; transform: translateX(-50%); width: min(420px, 40vw); pointer-events: none; background: none; border: none; backdrop-filter: none; text-align: center; }
+  #log div { margin: 2px 0; text-shadow: 0 1px 4px #000; transition: opacity 1.5s; }
+  #log .warn { color: var(--danger); }
+  #log .good { color: var(--accent); }
+  #bar { bottom: 12px; left: 50%; transform: translateX(-50%); width: max-content; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); }
+  button { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 11px; font: inherit; cursor: pointer; }
+  button:hover { background: rgba(255,255,255,.12); }
+  button.on { border-color: var(--accent); background: rgba(95,212,208,.18); }
+  button.pulse { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(95,212,208,.35); border-color: var(--accent); } }
+  button.harm.on { border-color: var(--danger); background: rgba(255,107,138,.18); }
+  .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+  label.s { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; }
+  input[type=range] { width: 90px; accent-color: var(--accent); }
+  select { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px; font: inherit; }
+  #hint { flex-basis: 100%; text-align: center; color: var(--dim); font-size: 12px; min-height: 17px; }
+  @media (max-width: 760px) { #chart, #bio, #title p { display: none; } #stats { width: 160px; } #log { width: 50vw; left: 40%; } }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div class="panel" id="title"><h1>Deep Tide</h1><p>A small ocean that runs without you.</p></div>
+
+<div class="panel" id="stats">
+  <h2>Life in the water</h2>
+  <div id="rows"></div>
+  <canvas id="chart" width="420" height="140"></canvas>
+  <div id="bio"><span>Biodiversity <b id="bioN">–</b></span><span>Water <b id="waterN">–</b></span></div>
+</div>
+
+<div class="panel" id="log"></div>
+
+<div class="panel" id="bar">
+  <div id="hint"></div>
+  <button data-tool="watch" class="on">Watch</button>
+  <button data-tool="net" class="harm">Net</button>
+  <button data-tool="trawl" class="harm">Trawler</button>
+  <button data-tool="pollute" class="harm">Pollute</button>
+  <button data-tool="invader" class="harm">Release invader</button>
+  <button data-tool="stock">Stock</button>
+  <select id="stockSel" title="Species to stock">
+    <option value="1">Grazers</option>
+    <option value="2">Hunters</option>
+    <option value="3">Jellyfish</option>
+    <option value="0">Plankton</option>
+  </select>
+  <span class="sep"></span>
+  <label class="s">Warmth <input type="range" id="temp" min="0" max="100" value="50"></label>
+  <span class="sep"></span>
+  <button id="pause">Pause</button>
+  <button id="speed">1×</button>
+  <button id="reset">Reset</button>
+</div>
+
+<script>
+// ==SIM-START==
+// Everything between these markers is pure simulation (no DOM) so it can be run headlessly for tuning.
+const WW = 1600, WH = 900;
+const GC = 40, GCOLS = Math.ceil(WW / GC), GROWS = Math.ceil(WH / GC);
+const HC = 50, HCOLS = Math.ceil(WW / HC), HROWS = Math.ceil(WH / HC);
+let PK_CAP = 900;
+
+// ---- Species table. Order = id. To add a species, add a row (and a draw shape in the renderer if it needs a new one).
+// Fields: speed/turn/vision (px/s, steering rate, px), meta (energy/s), max/rep/repCost (energy), cap (population limit),
+// life [min,max] seconds, pol (energy/s lost per unit pollution), start (initial count), startY [min,max], stock (added per click).
+// eats: ordered diet. prey = species id, gain = energy, reach = px to catch, below = only when energy < below*max,
+//       catch = {min,k}: success chance min(1, min + preyCount/k), so scarce prey is harder to catch.
+// flee: {from:[ids], radius, burst, cost}. filter: eats whatever drifts into reach instead of chasing. move:'drift' = jelly-style bobbing.
+// sun: {y,pull} pulls toward a preferred depth. crowd: {k,tax} extra upkeep when the species is over k individuals.
+// satiate: stop hunting above this fraction of max energy. recolonize: {after,n,needs:{id:minCount}}.
+const SPECIES = [
+  { id: 'plankton', name: 'Plankton', color: '#8fe3a0', plant: true, start: 500, stock: 40 },
+  { id: 'grazer', name: 'Grazers', color: '#5fd4d0', shape: 'fish', size: 5,
+    speed: 42, turn: 4, vision: 70, meta: 2.6, max: 100, rep: 75, repCost: 38, pol: 5, cap: 260, life: [140, 220],
+    start: 45, startY: [120, 630], stock: 5,
+    eats: [{ prey: 'plankton', gain: 9, reach: 7 }],
+    flee: { from: ['hunter', 'invader'], radius: 95, burst: 1.5, cost: 2 },
+    sun: { y: 260, pull: 1.1 }, recolonize: { after: 120, natural: 15, n: 6, needs: { plankton: 150 }, rescue: { below: 12, every: 30 } } },
+  { id: 'hunter', name: 'Hunters', color: '#ff8a4c', shape: 'fish', size: 11,
+    speed: 74, turn: 3, vision: 130, meta: 2.2, max: 240, rep: 200, repCost: 95, pol: 4, cap: 60, life: [260, 400],
+    start: 7, startY: [150, 720], stock: 3, satiate: 0.85, chase: 1.5,
+    eats: [{ prey: 'grazer', gain: 48, reach: 10, catch: { min: 0.15, k: 250 } }, { prey: 'jelly', gain: 14, reach: 10, below: 0.35 }],
+    flee: { from: ['shark'], radius: 130, burst: 1.2, cost: 2 },
+    recolonize: { after: 240, natural: 15, n: 3, needs: { grazer: 25 }, rescue: { below: 4, every: 45 } } },
+  { id: 'jelly', name: 'Jellyfish', color: '#c79bff', shape: 'jelly', size: 9,
+    speed: 16, turn: 1.5, vision: 30, meta: 0.4, max: 100, rep: 85, repCost: 42, pol: 0, cap: 200, life: [200, 320],
+    start: 10, startY: [100, 720], stock: 5, filter: true, move: 'drift',
+    eats: [{ prey: 'plankton', gain: 15, reach: 23 }],
+    sun: { y: 260, pull: 0.6 }, crowd: { k: 30, tax: 0.04 },
+    bloom: { at: 45, clear: 30, msg: 'A jellyfish bloom is taking over.' },
+    recolonize: { after: 180, natural: 20, n: 4, needs: { plankton: 150 }, rescue: { below: 3, every: 60 } } },
+  { id: 'invader', name: 'Invaders', color: '#ff3d7f', shape: 'fish', size: 9, spines: true, invasive: true,
+    speed: 84, turn: 3.5, vision: 150, meta: 2.4, max: 150, rep: 90, repCost: 45, pol: 0, cap: 80, life: [300, 500],
+    start: 0, stock: 3, satiate: 0.85, chase: 1.5,
+    eats: [{ prey: 'grazer', gain: 40, reach: 10 }, { prey: 'jelly', gain: 14, reach: 10 }] },
+  { id: 'turtle', name: 'Sea turtles', color: '#d9b24c', shape: 'turtle', size: 14,
+    speed: 24, turn: 2, vision: 90, meta: 0.3, max: 200, rep: 160, repCost: 80, pol: 6, cap: 16, life: [500, 800],
+    start: 3, startY: [100, 600], stock: 2, satiate: 0.8, chase: 0.5, sun: { y: 300, pull: 0.7 },
+    eats: [{ prey: 'jelly', gain: 30, reach: 12, catch: { min: 0.1, k: 40 } }, { prey: 'plankton', gain: 2, reach: 14, below: 0.7 }],
+    recolonize: { after: 300, natural: 30, n: 2, needs: { jelly: 8 }, rescue: { below: 2, every: 120 } } },
+  { id: 'shark', name: 'Sharks', color: '#9fb6cf', shape: 'shark', size: 17,
+    speed: 78, turn: 2.5, vision: 190, meta: 0.35, max: 400, rep: 330, repCost: 165, pol: 3, cap: 4, life: [700, 1100],
+    start: 2, startY: [200, 750], stock: 2, satiate: 0.8, chase: 1.5,
+    eats: [{ prey: 'hunter', gain: 140, reach: 12, catch: { min: 0.1, k: 30 } }],
+    recolonize: { after: 400, natural: 30, n: 2, needs: { hunter: 4 }, rescue: { below: 2, every: 150 } } },
+  { id: 'manta', name: 'Manta rays', color: '#5a7be6', shape: 'manta', size: 16,
+    speed: 40, turn: 1.5, vision: 30, meta: 0.8, max: 200, rep: 150, repCost: 75, pol: 4, cap: 10, life: [500, 800],
+    start: 3, startY: [150, 600], stock: 2, filter: true, sun: { y: 300, pull: 0.8 },
+    eats: [{ prey: 'plankton', gain: 8, reach: 34 }],
+    recolonize: { after: 300, natural: 60, n: 2, needs: { plankton: 200 }, rescue: { below: 2, every: 120 } } },
+];
+
+const IDX = {};
+SPECIES.forEach((s, i) => { s.i = i; IDX[s.id] = i; });
+const N = SPECIES.length;
+const BIT = SPECIES.map((_, i) => 1 << i);
+for (const s of SPECIES) {
+  for (const d of s.eats || []) { d.p = IDX[d.prey]; d.mask = BIT[d.p]; }
+  if (s.flee) s.flee.mask = s.flee.from.reduce((m, id) => m | BIT[IDX[id]], 0);
+}
+const [PLANKTON, GRAZER, HUNTER, JELLY, INVADER] = [0, 1, 2, 3, 4];
+const NATIVE = SPECIES.filter(s => !s.invasive);
+
+const zeros = () => new Array(N).fill(0);
+const S = {
+  t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
+  trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
+  hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
+};
+for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function makeAgent(t, x, y) {
+  const s = SPECIES[t];
+  return {
+    t, x, y, vx: 0, vy: 0, ang: Math.random() * 6.283, dead: false, age: 0, cool: rnd(0, 6), phase: Math.random() * 6.283,
+    e: s.plant ? 0 : (s.max * rnd(0.45, 0.7)),
+    maxAge: s.plant ? rnd(40, 90) : rnd(s.life[0], s.life[1]),
+  };
+}
+
+function resetWorld() {
+  S.t = 0; S.agents = []; S.newborns = []; S.poll.fill(0); S.avgPoll = 0; S.trawlers = []; S.hist = []; S.hacc = 0; S.events = [];
+  S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
+  for (const s of SPECIES) {
+    for (let i = 0; i < (s.start || 0); i++) {
+      const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
+      a.age = rnd(0, 0.6) * a.maxAge; // stagger the founders so they don't all die of old age together
+      S.agents.push(a);
+    }
+  }
+  countAll();
+  log('The water is calm.', 'good');
+}
+
+function spawnPlankton() {
+  // sunlight is strongest near the surface, so plankton cluster there
+  const a = makeAgent(PLANKTON, rnd(10, WW - 10), WH * Math.pow(Math.random(), 1.7));
+  a.maxAge = rnd(40, 90);
+  return a;
+}
+
+function pollIdx(x, y) {
+  const cx = Math.min(GCOLS - 1, Math.max(0, (x / GC) | 0)), cy = Math.min(GROWS - 1, Math.max(0, (y / GC) | 0));
+  return cy * GCOLS + cx;
+}
+const pollAt = (x, y) => S.poll[pollIdx(x, y)];
+
+function buildHash() {
+  for (const b of S.hash) b.length = 0;
+  for (const a of S.agents) {
+    if (a.dead) continue;
+    const cx = Math.min(HCOLS - 1, Math.max(0, (a.x / HC) | 0)), cy = Math.min(HROWS - 1, Math.max(0, (a.y / HC) | 0));
+    S.hash[cy * HCOLS + cx].push(a);
+  }
+}
+
+function nearest(x, y, r, mask, self) {
+  let best = null, bd = r * r;
+  const x0 = Math.max(0, ((x - r) / HC) | 0), x1 = Math.min(HCOLS - 1, ((x + r) / HC) | 0);
+  const y0 = Math.max(0, ((y - r) / HC) | 0), y1 = Math.min(HROWS - 1, ((y + r) / HC) | 0);
+  for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+    const b = S.hash[cy * HCOLS + cx];
+    for (let i = 0; i < b.length; i++) {
+      const o = b[i];
+      if (o.dead || o === self || !(BIT[o.t] & mask)) continue;
+      const dx = o.x - x, dy = o.y - y, d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = o; }
+    }
+  }
+  return best;
+}
+
+function countAll() {
+  const c = zeros();
+  for (const a of S.agents) if (!a.dead) c[a.t]++;
+  S.counts = c;
+  return c;
+}
+
+function updPlankton(a, dt) {
+  a.age += dt;
+  a.x += (Math.random() - 0.5) * 8 * dt;
+  a.y += (Math.random() - 0.45) * 6 * dt;
+  if (a.x < 5) a.x = 5; else if (a.x > WW - 5) a.x = WW - 5;
+  if (a.y < 3) a.y = 3; else if (a.y > WH - 3) a.y = WH - 3;
+  if (a.age > a.maxAge || Math.random() < pollAt(a.x, a.y) * 0.3 * dt) a.dead = true;
+}
+
+function eat(pred, prey, gain) {
+  prey.dead = true;
+  pred.e = Math.min(SPECIES[pred.t].max, pred.e + gain);
+  S.effects.push({ x: prey.x, y: prey.y, t: 0, kind: prey.t === PLANKTON ? 0 : 1 });
+}
+
+function updMobile(a, dt) {
+  const s = SPECIES[a.t];
+  const tf = 0.7 + 0.6 * S.temp; // warmer water = faster metabolism
+  a.e -= (s.meta * tf + pollAt(a.x, a.y) * s.pol) * dt;
+  if (s.crowd && S.counts[a.t] > s.crowd.k) a.e -= (S.counts[a.t] - s.crowd.k) * s.crowd.tax * dt;
+  a.age += dt; a.cool -= dt;
+  if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; return; }
+
+  let dx = 0, dy = 0, mul = 0.5, wander = true;
+  const thr = s.flee ? nearest(a.x, a.y, s.flee.radius, s.flee.mask, a) : null;
+  if (thr) {
+    dx = a.x - thr.x; dy = a.y - thr.y; mul = s.flee.burst; a.e -= s.flee.cost * dt; wander = false;
+  } else if (s.filter) {
+    const d = s.eats[0], f = nearest(a.x, a.y, d.reach, d.mask, a);
+    if (f) eat(a, f, d.gain);
+    if (s.move === 'drift') { // slow pulsing drift
+      dy = Math.sin(S.t * 0.6 + a.phase) * 0.8; dx = Math.cos(a.ang) * 0.5;
+      a.ang += (Math.random() - 0.5) * 1.5 * dt; mul = 0.5; wander = false;
+    }
+  } else if (a.e < s.max * (s.satiate || 1.01)) {
+    for (const d of s.eats) {
+      if (d.below && a.e >= s.max * d.below) continue;
+      const prey = nearest(a.x, a.y, s.vision, d.mask, a);
+      if (!prey) continue;
+      dx = prey.x - a.x; dy = prey.y - a.y; mul = 1; wander = false;
+      if (s.chase) a.e -= s.chase * dt;
+      if (dx * dx + dy * dy < d.reach * d.reach) {
+        // rare prey scatters and hides, which keeps predators from driving it to zero
+        const p = d.catch ? Math.min(1, d.catch.min + S.counts[d.p] / d.catch.k) : 1;
+        if (Math.random() < p) eat(a, prey, d.gain);
+      }
+      break;
+    }
+  }
+
+  if (wander) { a.ang += (Math.random() - 0.5) * 4 * dt; dx = Math.cos(a.ang); dy = Math.sin(a.ang); }
+  // some species drift back toward the sunlit layer where the plankton lives
+  if (s.sun) dy += Math.max(-1, Math.min(1, (s.sun.y - a.y) / 220)) * s.sun.pull;
+  const m = Math.hypot(dx, dy) || 1;
+  dx /= m; dy /= m;
+  // soft walls steer wanderers only: a hunter or forager chasing something must be free to reach the edge
+  if (wander) {
+    if (a.x < 90) dx += 1.2; else if (a.x > WW - 90) dx -= 1.2;
+    if (a.y < 40) dy += 1.2; else if (a.y > WH - 70) dy -= 1.2;
+  }
+  const m2 = Math.hypot(dx, dy) || 1;
+  const sp = s.speed * mul;
+  a.vx += (dx / m2 * sp - a.vx) * Math.min(1, s.turn * dt);
+  a.vy += (dy / m2 * sp - a.vy) * Math.min(1, s.turn * dt);
+  a.x += a.vx * dt; a.y += a.vy * dt;
+  if (a.x < 4) { a.x = 4; a.vx = Math.abs(a.vx); } else if (a.x > WW - 4) { a.x = WW - 4; a.vx = -Math.abs(a.vx); }
+  if (a.y < 4) { a.y = 4; a.vy = Math.abs(a.vy); } else if (a.y > WH - 4) { a.y = WH - 4; a.vy = -Math.abs(a.vy); }
+
+  if (a.e >= s.rep && a.cool <= 0 && S.counts[a.t] < s.cap) {
+    a.e -= s.repCost; a.cool = 6;
+    const k = makeAgent(a.t, a.x + rnd(-8, 8), a.y + rnd(-8, 8));
+    k.e = s.repCost * 0.8;
+    S.newborns.push(k);
+    S.counts[a.t]++;
+  }
+}
+
+function step(dt) {
+  S.t += dt;
+  buildHash();
+  const c = S.counts;
+  for (const a of S.agents) {
+    if (a.dead) continue;
+    if (a.t === PLANKTON) updPlankton(a, dt); else updMobile(a, dt);
+  }
+  // plankton growth: logistic + a small trickle carried in by currents. Heat and pollution suppress it.
+  const pk = c[PLANKTON];
+  const heat = Math.max(0.05, 1 - 2.4 * Math.max(0, S.temp - 0.5));
+  S.plankAcc += (0.12 * pk * Math.max(0, 1 - pk / PK_CAP) * heat + 2.5 * heat) * dt;
+  while (S.plankAcc >= 1) {
+    S.plankAcc -= 1;
+    const k = spawnPlankton();
+    if (Math.random() >= pollAt(k.x, k.y)) S.agents.push(k);
+  }
+  for (const k of S.newborns) S.agents.push(k);
+  S.newborns.length = 0;
+  stepTools(dt);
+  stepPollution(dt);
+  S.agents = S.agents.filter(a => !a.dead);
+  countAll();
+  stepRecolonize(dt);
+  for (const e of S.effects) e.t += dt;
+  S.effects = S.effects.filter(e => e.t < 0.5);
+  S.hacc += dt;
+  if (S.hacc >= 1) { S.hacc -= 1; sample(); }
+}
+
+// Immigration from the wider ocean, only while the water is healthy (clean, not overheated) and the species' food is plentiful.
+// - Rescue: a species down to a few individuals gets a trickle of arrivals, so pure bad luck can't empty it.
+// - Recolonization: a species that has died out comes back. If the player caused the loss (killed it recently, fouled or heated
+//   the water, or released invaders) that takes a long time (`after`) and is announced. A natural loss is a quick blip (`natural`).
+function stepRecolonize(dt) {
+  const healthy = S.avgPoll < 0.03 && S.temp < 0.7;
+  const invaded = S.counts[INVADER] > 0;
+  for (const s of NATIVE) {
+    if (!s.recolonize || s.plant) continue;
+    const i = s.i, r = s.recolonize, n = S.counts[i];
+    if (n > 0) S.zero[i] = 0;
+    else if (!S.zero[i]) { // the moment it hit zero: whose fault was it?
+      S.zero[i] = 1;
+      S.harmed[i] = (S.t - S.harm[i] < 150 || !healthy || invaded) ? 1 : 0;
+      if (S.harmed[i]) {
+        log(s.name + ' have been wiped out.', 'warn');
+        if (!S.flags.stockHint) { S.flags.stockHint = true; S.flags.stockPulse = true; log('Stock them back now, or give the water time to heal: if it stays clean and cool they\'ll drift back in. Rebuild bottom-up.', 'good'); }
+      }
+    }
+    const fed = Object.keys(r.needs).every(id => S.counts[IDX[id]] >= r.needs[id]);
+    if (!healthy || !fed) { S.heal[i] = Math.max(0, S.heal[i] - dt); S.rescue[i] = Math.max(0, S.rescue[i] - dt); continue; }
+    if (n === 0) {
+      S.rescue[i] = 0; S.heal[i] += dt;
+      if (S.heal[i] >= (S.harmed[i] ? r.after : r.natural)) {
+        S.heal[i] = 0; arrive(i, S.harmed[i] ? r.n : 2);
+        if (S.harmed[i]) log(s.name + ' have returned from the open ocean.', 'good');
+      }
+    } else if (r.rescue && n < r.rescue.below) {
+      S.heal[i] = 0; S.rescue[i] += dt;
+      if (S.rescue[i] >= r.rescue.every) { S.rescue[i] = 0; arrive(i, 1); }
+    } else { S.heal[i] = 0; S.rescue[i] = 0; }
+  }
+}
+function arrive(i, n) {
+  const x = Math.random() < 0.5 ? 40 : WW - 40;
+  for (let k = 0; k < n; k++) {
+    const a = makeAgent(i, x + rnd(-15, 15), rnd(120, WH * 0.7));
+    a.e = SPECIES[i].max * 0.9; // arrivals are fit, not starving
+    S.agents.push(a);
+  }
+}
+
+function stepPollution(dt) {
+  const g = S.poll, n = S.pollB || (S.pollB = new Float32Array(g.length)), k = Math.min(0.5, 0.8 * dt), decay = 1 - 0.004 * dt;
+  let sum = 0;
+  for (let y = 0; y < GROWS; y++) for (let x = 0; x < GCOLS; x++) {
+    const i = y * GCOLS + x, v = g[i];
+    const l = x > 0 ? g[i - 1] : v, r = x < GCOLS - 1 ? g[i + 1] : v, u = y > 0 ? g[i - GCOLS] : v, d = y < GROWS - 1 ? g[i + GCOLS] : v;
+    n[i] = (v + k * ((l + r + u + d) / 4 - v)) * decay;
+    sum += n[i];
+  }
+  S.pollB = g; S.poll = n; S.avgPoll = sum / n.length; // swap buffers instead of allocating
+}
+
+function addPollution(x, y, r, amt) {
+  const g = S.poll;
+  for (let cy = Math.max(0, ((y - r) / GC) | 0); cy <= Math.min(GROWS - 1, ((y + r) / GC) | 0); cy++)
+    for (let cx = Math.max(0, ((x - r) / GC) | 0); cx <= Math.min(GCOLS - 1, ((x + r) / GC) | 0); cx++) {
+      const d = Math.hypot((cx + 0.5) * GC - x, (cy + 0.5) * GC - y);
+      if (d < r) g[cy * GCOLS + cx] = Math.min(1, g[cy * GCOLS + cx] + amt * (1 - d / r));
+    }
+}
+
+function netAt(x, y, r) {
+  let n = 0;
+  for (const a of S.agents) {
+    if (a.dead || a.t === PLANKTON) continue;
+    if (Math.hypot(a.x - x, a.y - y) < r) { a.dead = true; n++; S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2 }); }
+  }
+  return n;
+}
+
+function startTrawl(y) { S.trawlers.push({ x: -80, y, band: 90, speed: 380 }); }
+
+function stepTools(dt) {
+  for (const tr of S.trawlers) {
+    const nx = tr.x + tr.speed * dt;
+    for (const a of S.agents) {
+      if (a.dead || a.x < tr.x - 10 || a.x > nx + 10 || Math.abs(a.y - tr.y) > tr.band) continue;
+      // bycatch: everything in the net dies, plankton too (at a lower rate)
+      if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2 }); }
+    }
+    tr.x = nx;
+  }
+  S.trawlers = S.trawlers.filter(t => t.x < WW + 120);
+}
+
+function spawnMany(t, x, y, n) {
+  const cap = SPECIES[t].plant ? PK_CAP : SPECIES[t].cap;
+  n = Math.max(0, Math.min(n, cap - S.counts[t])); // the ocean can only hold so many
+  S.counts[t] += n;
+  for (let i = 0; i < n; i++) {
+    const a = t === PLANKTON ? spawnPlankton() : makeAgent(t, x + rnd(-30, 30), y + rnd(-30, 30));
+    if (t === PLANKTON) { a.x = Math.max(5, Math.min(WW - 5, x + rnd(-50, 50))); a.y = Math.max(3, Math.min(WH - 3, y + rnd(-50, 50))); }
+    S.agents.push(a);
+  }
+}
+
+function log(msg, kind) { S.events.push({ msg, kind: kind || '', t: S.t }); }
+
+function sample() {
+  const c = S.counts;
+  S.hist.push(c.slice());
+  if (S.hist.length > 300) S.hist.shift();
+  for (let i = 0; i < N; i++) S.peak[i] = Math.max(S.peak[i], c[i]);
+  // narrate the notable moments
+  const prev = S.hist.length > 1 ? S.hist[S.hist.length - 2] : null;
+  for (const s of SPECIES) {
+    if (s.plant) continue;
+    if (s.invasive && prev && prev[s.i] > 0 && c[s.i] === 0) log(s.name + ' have been wiped out.', 'warn');
+    if (s.bloom) {
+      const f = 'bloom' + s.i;
+      if (!S.flags[f] && c[s.i] >= s.bloom.at) { S.flags[f] = true; log(s.bloom.msg, 'warn'); }
+      if (c[s.i] < s.bloom.clear) S.flags[f] = false;
+    }
+  }
+  if (S.peak[PLANKTON] > 200 && c[PLANKTON] < 15 && !S.flags.plank) { S.flags.plank = true; log('The plankton has collapsed. Everything above it is starving.', 'warn'); }
+  if (c[PLANKTON] > 120) S.flags.plank = false;
+  if (!S.flags.dead && S.avgPoll > 0.12) { S.flags.dead = true; log('A dead zone is spreading.', 'warn'); }
+  if (S.avgPoll < 0.05) S.flags.dead = false;
+  if (!S.flags.hot && S.temp > 0.8) { S.flags.hot = true; log('The water is too warm. The plankton is struggling.', 'warn'); }
+  if (S.temp < 0.65) S.flags.hot = false;
+}
+
+function biodiversity() {
+  // Shannon evenness over the native species (invaders don't add diversity)
+  const c = NATIVE.map(s => Math.log(1 + S.counts[s.i])), tot = c.reduce((a, b) => a + b, 0); // log: plankton's numbers shouldn't drown out the rest
+  if (tot === 0) return 0;
+  let h = 0;
+  for (const n of c) if (n > 0) { const p = n / tot; h -= p * Math.log(p); }
+  return h / Math.log(c.length);
+}
+function waterQuality() { return 1 - Math.min(1, S.avgPoll / 0.2); }
+// ==SIM-END==
+</script>
+
+<script>
+// ---------- rendering + input ----------
+const view = document.getElementById('view'), ctx = view.getContext('2d');
+const COL = SPECIES.map(sp => sp.color);
+let scale = 1, ox = 0, oy = 0, tool = 'watch', paused = false, speedMul = 1; // speedMul = simulated seconds per real second
+const ptr = { x: 0, y: 0, down: false, inside: false };
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  view.width = innerWidth * dpr; view.height = innerHeight * dpr;
+  scale = Math.min(innerWidth / WW, innerHeight / WH);
+  ox = (innerWidth - WW * scale) / 2; oy = (innerHeight - WH * scale) / 2;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize); resize();
+
+function toWorld(e) { return { x: (e.clientX - ox) / scale, y: (e.clientY - oy) / scale }; }
+
+const glowCache = {};
+function glow(color) {
+  if (glowCache[color]) return glowCache[color];
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, color + 'cc'); gr.addColorStop(0.4, color + '33'); gr.addColorStop(1, color + '00');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return glowCache[color] = c;
+}
+
+function drawBackground(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, WH);
+  g.addColorStop(0, '#0d5d82'); g.addColorStop(0.35, '#073a57'); g.addColorStop(1, '#010a12');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, WW, WH);
+  // slow light shafts
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 6; i++) {
+    const x = ((i * 290 + t * 6 * (1 + i % 3 * 0.3)) % (WW + 400)) - 200, w = 90 + i * 22;
+    const lg = ctx.createLinearGradient(0, 0, 0, WH * 0.7);
+    lg.addColorStop(0, 'rgba(150,220,255,0.10)'); lg.addColorStop(1, 'rgba(150,220,255,0)');
+    ctx.fillStyle = lg; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x + w * 2.2 - 180, WH * 0.7); ctx.lineTo(x - 140, WH * 0.7); ctx.fill();
+  }
+  ctx.restore();
+  // seabed
+  ctx.fillStyle = '#04101a'; ctx.beginPath(); ctx.moveTo(0, WH);
+  for (let x = 0; x <= WW; x += 40) ctx.lineTo(x, WH - 14 - Math.sin(x * 0.011) * 8 - Math.sin(x * 0.031) * 4);
+  ctx.lineTo(WW, WH); ctx.fill();
+}
+
+// pollution is painted into a tiny one-pixel-per-cell canvas and scaled up with smoothing: soft clouds, no block seams
+const pollCanvas = document.createElement('canvas'); pollCanvas.width = GCOLS; pollCanvas.height = GROWS;
+const pollCtx = pollCanvas.getContext('2d'), pollImg = pollCtx.createImageData(GCOLS, GROWS);
+function drawPollution() {
+  const d = pollImg.data; let any = false;
+  for (let i = 0; i < S.poll.length; i++) {
+    const v = S.poll[i], o = i * 4;
+    d[o] = 78; d[o + 1] = 52; d[o + 2] = 18; d[o + 3] = v > 0.02 ? Math.min(190, v * 205) : 0;
+    if (d[o + 3]) any = true;
+  }
+  if (!any) return;
+  pollCtx.putImageData(pollImg, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(pollCanvas, 0, 0, GCOLS * GC, GROWS * GC);
+}
+
+function drawAgent(a, t) {
+  const sp = SPECIES[a.t];
+  if (sp.plant) { ctx.fillStyle = 'rgba(143,227,160,0.65)'; ctx.fillRect(a.x - 1, a.y - 1, 2.2, 2.2); return; }
+  if (sp.shape === 'jelly') {
+    const pulse = 1 + Math.sin(t * 2.2 + a.phase) * 0.14, r = sp.size * pulse;
+    ctx.globalAlpha = 0.9; ctx.drawImage(glow(sp.color), a.x - 26, a.y - 26, 52, 52); ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(199,155,255,0.55)'; ctx.beginPath(); ctx.arc(a.x, a.y, r, Math.PI, 0); ctx.quadraticCurveTo(a.x, a.y + 3, a.x - r, a.y); ctx.fill();
+    ctx.strokeStyle = 'rgba(220,190,255,0.45)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = -1; i <= 1; i++) { ctx.moveTo(a.x + i * 4, a.y + 1); ctx.quadraticCurveTo(a.x + i * 4 + Math.sin(t * 2 + i + a.phase) * 4, a.y + 9, a.x + i * 4, a.y + 17); }
+    ctx.stroke(); return;
+  }
+  const size = sp.size, ang = Math.atan2(a.vy, a.vx);
+  ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(ang);
+  if (Math.cos(ang) < 0) ctx.scale(1, -1); // keep the belly down when swimming left
+  ctx.fillStyle = sp.color;
+  const wag = Math.sin(t * 9 + a.phase) * size * 0.25;
+  if (sp.shape === 'fish') {
+    ctx.beginPath(); ctx.ellipse(0, 0, size, size * 0.45, 0, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-size * 0.8, 0); ctx.lineTo(-size * 1.6, -size * 0.55 + wag); ctx.lineTo(-size * 1.6, size * 0.55 + wag); ctx.fill();
+    if (sp.spines) {
+      ctx.strokeStyle = sp.color; ctx.lineWidth = 1.2; ctx.beginPath();
+      for (let i = -2; i <= 2; i++) { ctx.moveTo(i * 2.2, -size * 0.35); ctx.lineTo(i * 2.2 - 2, -size * 0.95); ctx.moveTo(i * 2.2, size * 0.35); ctx.lineTo(i * 2.2 - 2, size * 0.95); }
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#02070d'; ctx.fillRect(size * 0.45, -size * 0.12, 1.6, 1.6);
+  } else if (sp.shape === 'shark') {
+    const w = Math.sin(t * 3 + a.phase) * size * 0.14;
+    ctx.beginPath(); ctx.moveTo(size, 0); ctx.quadraticCurveTo(size * 0.2, -size * 0.34, -size * 0.85, -size * 0.1 + w * 0.3); ctx.lineTo(-size * 0.85, size * 0.1 + w * 0.3); ctx.quadraticCurveTo(size * 0.2, size * 0.3, size, 0); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-size * 0.8, 0); ctx.lineTo(-size * 1.4, -size * 0.55 + w); ctx.lineTo(-size * 1.18, w * 0.5); ctx.lineTo(-size * 1.3, size * 0.4 + w); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(size * 0.15, -size * 0.25); ctx.lineTo(-size * 0.2, -size * 0.72); ctx.lineTo(-size * 0.4, -size * 0.2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(size * 0.3, size * 0.17); ctx.lineTo(size * 0.0, size * 0.55); ctx.lineTo(-size * 0.12, size * 0.2); ctx.fill();
+    ctx.fillStyle = '#02070d'; ctx.fillRect(size * 0.62, -size * 0.1, 2, 2);
+  } else if (sp.shape === 'turtle') {
+    const f = Math.sin(t * 2.4 + a.phase) * 0.5;
+    ctx.beginPath(); ctx.ellipse(-size * 0.55, size * 0.3, size * 0.32, size * 0.1, 0.5 - f * 0.3, 0, 6.283); ctx.fill(); // hind flipper
+    ctx.fillStyle = '#5f7a2e'; ctx.beginPath(); ctx.ellipse(0, 0, size * 0.85, size * 0.5, 0, 0, 6.283); ctx.fill(); // shell
+    ctx.strokeStyle = 'rgba(210,230,140,0.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-size * 0.5, 0); ctx.lineTo(size * 0.5, 0); ctx.moveTo(0, -size * 0.45); ctx.lineTo(0, size * 0.45); ctx.stroke();
+    ctx.fillStyle = sp.color;
+    ctx.beginPath(); ctx.ellipse(size * 0.25, size * 0.4, size * 0.55, size * 0.14, 0.7 + f, 0, 6.283); ctx.fill(); // front flipper
+    ctx.beginPath(); ctx.arc(size * 1.0, size * 0.05, size * 0.27, 0, 6.283); ctx.fill(); // head
+    ctx.fillStyle = '#02070d'; ctx.fillRect(size * 1.12, -size * 0.04, 1.8, 1.8);
+  } else if (sp.shape === 'manta') {
+    const fl = 0.8 + 0.25 * Math.sin(t * 2 + a.phase);
+    ctx.beginPath(); ctx.moveTo(size, 0);
+    ctx.quadraticCurveTo(size * 0.2, -size * 0.95 * fl, -size * 0.9, -size * 1.0 * fl); ctx.lineTo(-size * 0.45, 0); ctx.lineTo(-size * 0.9, size * 1.0 * fl);
+    ctx.quadraticCurveTo(size * 0.2, size * 0.95 * fl, size, 0); ctx.fill();
+    ctx.strokeStyle = sp.color; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(-size * 0.45, 0); ctx.quadraticCurveTo(-size * 1.2, wag * 0.6, -size * 1.9, -wag * 0.4); ctx.stroke();
+    ctx.fillStyle = '#02070d'; ctx.fillRect(size * 0.7, -size * 0.12, 1.8, 1.8); ctx.fillRect(size * 0.7, size * 0.1, 1.8, 1.8);
+  }
+  ctx.restore();
+}
+
+function drawEffects() {
+  for (const e of S.effects) {
+    const k = e.t / 0.5;
+    if (e.kind === 0) continue;
+    ctx.strokeStyle = e.kind === 2 ? `rgba(255,255,255,${0.6 * (1 - k)})` : `rgba(255,120,80,${0.7 * (1 - k)})`;
+    ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(e.x, e.y, 3 + k * 14, 0, 6.283); ctx.stroke();
+  }
+}
+
+function drawTrawlers() {
+  for (const tr of S.trawlers) {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(tr.x - 16, tr.y - 10, 32, 20);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(tr.x - 16, tr.y - tr.band); ctx.lineTo(tr.x - 16, tr.y + tr.band);
+    for (let i = -3; i <= 3; i++) { ctx.moveTo(tr.x - 16, tr.y + i * tr.band / 3); ctx.lineTo(tr.x - 150, tr.y + i * tr.band / 3 * 0.8); }
+    ctx.stroke();
+  }
+}
+
+function drawCursor() {
+  if (!ptr.inside) return;
+  ctx.lineWidth = 1.5;
+  if (tool === 'net') { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 50, 0, 6.283); ctx.stroke(); }
+  else if (tool === 'pollute') { ctx.strokeStyle = 'rgba(190,130,50,.8)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 80, 0, 6.283); ctx.stroke(); }
+  else if (tool === 'trawl') { ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.moveTo(0, ptr.y - 90); ctx.lineTo(WW, ptr.y - 90); ctx.moveTo(0, ptr.y + 90); ctx.lineTo(WW, ptr.y + 90); ctx.stroke(); ctx.setLineDash([]); }
+  else if (tool === 'invader' || tool === 'stock') { ctx.strokeStyle = tool === 'invader' ? COL[INVADER] : COL[+document.getElementById('stockSel').value]; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 14, 0, 6.283); ctx.stroke(); }
+}
+
+let lastNow = 0, acc = 0;
+function frame(now) {
+  const dt = 1 / 30;
+  // advance by real elapsed time, not once per screen refresh, so the pace is the same on 60 Hz and 144 Hz displays
+  const real = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
+  lastNow = now;
+  if (!paused) {
+    acc += real * speedMul;
+    let n = 0;
+    while (acc >= dt && n++ < 8) {
+      acc -= dt;
+      if (ptr.down && ptr.inside) {
+        if (tool === 'net') netAt(ptr.x, ptr.y, 50);
+        else if (tool === 'pollute') addPollution(ptr.x, ptr.y, 80, 0.08);
+      }
+      step(dt);
+    }
+    if (acc > dt) acc = 0;
+  }
+  ctx.fillStyle = '#02070d'; ctx.fillRect(0, 0, innerWidth, innerHeight);
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale);
+  ctx.beginPath(); ctx.rect(0, 0, WW, WH); ctx.clip();
+  drawBackground(S.t);
+  drawPollution();
+  for (const a of S.agents) drawAgent(a, S.t);
+  drawEffects(); drawTrawlers(); drawCursor();
+  ctx.restore();
+  updateUI();
+  requestAnimationFrame(frame);
+}
+
+// ---------- UI ----------
+const rowsEl = document.getElementById('rows');
+for (const sp of SPECIES) {
+  const r = document.createElement('div'); r.className = 'row'; r.id = 'row' + sp.i;
+  r.innerHTML = `<span class="dot" style="background:${sp.color}"></span><span>${sp.name}</span><span class="n">0</span>`;
+  if (sp.invasive) r.style.display = 'none';
+  rowsEl.appendChild(r);
+}
+const stockSel = document.getElementById('stockSel');
+stockSel.innerHTML = '';
+for (const sp of NATIVE) { const o = document.createElement('option'); o.value = sp.i; o.textContent = sp.name; stockSel.appendChild(o); }
+stockSel.value = GRAZER;
+const chart = document.getElementById('chart'), cc = chart.getContext('2d');
+const logEl = document.getElementById('log');
+let logShown = 0, uiTick = 0;
+
+const HINTS = {
+  watch: 'Just watch. Sit with it for a minute before you touch anything.',
+  net: 'Hold and drag to net fish. Plankton slips through.',
+  trawl: 'Click a depth. A trawler sweeps the whole width and takes everything in its path.',
+  pollute: 'Hold and paint. Pollution spreads and fades slowly.',
+  invader: 'Click to release a few invaders. Nothing here has ever met them.',
+  stock: 'Click to add the selected species. Rebuild from the bottom: plankton, then grazers, then what eats them.',
+};
+
+function updateUI() {
+  if ((uiTick++ % 6) === 0) {
+    document.querySelector('[data-tool=stock]').classList.toggle('pulse', S.flags.stockPulse && tool !== 'stock');
+    for (const sp of SPECIES) {
+      const row = document.getElementById('row' + sp.i);
+      row.querySelector('.n').textContent = S.counts[sp.i];
+      row.classList.toggle('extinct', S.counts[sp.i] === 0 && S.peak[sp.i] > 0);
+      if (sp.invasive) row.style.display = S.peak[sp.i] > 0 ? '' : 'none';
+    }
+    document.getElementById('bioN').textContent = Math.round(biodiversity() * 100) + '%';
+    document.getElementById('waterN').textContent = Math.round(waterQuality() * 100) + '%';
+    drawChart();
+  }
+  while (logShown < S.events.length) {
+    const e = S.events[logShown++], d = document.createElement('div');
+    d.textContent = e.msg; d.className = e.kind; logEl.appendChild(d);
+    while (logEl.children.length > 5) logEl.removeChild(logEl.firstChild);
+    setTimeout(() => { d.style.opacity = 0; setTimeout(() => d.remove(), 1600); }, 11000);
+  }
+}
+
+function drawChart() {
+  const W = chart.width, H = chart.height;
+  cc.clearRect(0, 0, W, H);
+  const h = S.hist; if (h.length < 2) return;
+  for (let t = 0; t < N; t++) {
+    if (SPECIES[t].invasive && S.peak[t] === 0) continue;
+    const mx = Math.max(1, S.peak[t]);
+    cc.strokeStyle = COL[t]; cc.lineWidth = 2; cc.beginPath();
+    h.forEach((s, i) => { const x = i / 299 * W + (W - h.length / 299 * W), y = H - 4 - (s[t] / mx) * (H - 8); i ? cc.lineTo(x, y) : cc.moveTo(x, y); });
+    cc.stroke();
+  }
+}
+
+function setTool(t) {
+  tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  document.getElementById('hint').textContent = HINTS[t];
+}
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+document.getElementById('stockSel').addEventListener('change', () => setTool('stock'));
+document.getElementById('temp').addEventListener('input', e => { S.temp = e.target.value / 100; });
+document.getElementById('pause').addEventListener('click', e => { paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
+document.getElementById('speed').addEventListener('click', e => { speedMul = speedMul === 1 ? 2 : speedMul === 2 ? 4 : speedMul === 4 ? 0.5 : 1; e.target.textContent = speedMul + '×'; });
+document.getElementById('reset').addEventListener('click', () => { resetWorld(); logShown = 0; logEl.innerHTML = ''; document.getElementById('temp').value = 50; S.temp = 0.5; });
+
+view.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !e.isPrimary) return;
+  const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true;
+  view.setPointerCapture(e.pointerId);
+  if (tool === 'trawl') startTrawl(p.y);
+  else if (tool === 'invader') { spawnMany(INVADER, p.x, p.y, 3); log('Something that doesn\'t belong here has been released.', 'warn'); }
+  else if (tool === 'stock') { S.flags.stockPulse = false; const t = +document.getElementById('stockSel').value; spawnMany(t, p.x, p.y, SPECIES[t].stock); }
+});
+view.addEventListener('pointermove', e => { const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.inside = true; });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; });
+view.addEventListener('contextmenu', e => e.preventDefault());
+view.addEventListener('pointerleave', () => { ptr.inside = false; });
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^(SELECT|INPUT)$/.test(e.target.tagName) || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
+  const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock' }[e.key.toLowerCase()];
+  if (k) setTool(k); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
+});
+
+resetWorld(); setTool('watch'); requestAnimationFrame(frame);
+</script>
+</body>
+</html>
