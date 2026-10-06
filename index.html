@@ -50,13 +50,58 @@
   input[type=range] { width: 90px; accent-color: var(--accent); }
   select { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px; font: inherit; }
   #hint { flex-basis: 100%; text-align: center; color: var(--dim); font-size: 12px; min-height: 17px; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button:disabled:hover { background: rgba(255,255,255,.05); }
+  input:disabled { opacity: .7; }
+  /* scored run HUD (inside the title panel) */
+  #hud { width: min(230px, 44vw); margin-top: 8px; border-top: 1px solid var(--line); padding-top: 7px; font-size: 12px; }
+  #hud[hidden] { display: none; }
+  #hud .clock { display: flex; justify-content: space-between; align-items: baseline; }
+  #hud .clock b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #hud .clock small { color: var(--dim); font-size: 11px; }
+  #hud .q { display: flex; justify-content: space-between; color: var(--dim); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  #hud .q b { color: var(--text); font-weight: 600; }
+  .qbar { height: 8px; margin-top: 3px; background: rgba(255,255,255,.08); border-radius: 4px; overflow: hidden; }
+  .qbar i { display: block; height: 100%; width: 0; background: #e0a84c; transition: width .3s; }
+  .qbar.met i { background: var(--accent); }
+  #hud .sub { color: var(--dim); margin-top: 5px; }
+  #hud .sub .warn { color: var(--danger); }
+  /* mode picker + end screen */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(1, 6, 12, .55); }
+  .overlay[hidden] { display: none; }
+  .card { background: rgba(6, 22, 36, .94); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; width: 100%; max-width: 520px;
+    max-height: calc(100vh - 32px); overflow-y: auto; touch-action: pan-y; user-select: text; }
+  .card h2 { margin: 0 0 4px; font-size: 16px; letter-spacing: .12em; text-transform: uppercase; font-weight: 600; }
+  .card p { margin: 6px 0; color: var(--dim); }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .modes button { text-align: left; padding: 12px; line-height: 1.35; }
+  .modes button b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .modes button span { color: var(--dim); font-size: 12px; }
+  .verdict { color: var(--text) !important; font-size: 14px; font-style: italic; }
+  .bigscore { font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; margin: 8px 0 2px; }
+  .card table { width: 100%; border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
+  .card td { padding: 3px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .card td:last-child { text-align: right; padding-left: 10px; }
+  .card td.neg { color: var(--danger); }
+  .card h3 { margin: 12px 0 2px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .card .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .card .actions[hidden] { display: none; }
   @media (max-width: 760px) { #chart, #bio, #title p { display: none; } #stats { width: 160px; } #log { width: 50vw; left: 40%; } }
+  @media (max-width: 760px) { #hud .clock small { display: none; } #hud .clock { flex-wrap: wrap; gap: 0 8px; } }
+  @media (max-width: 520px) { .modes { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <canvas id="view"></canvas>
 
-<div class="panel" id="title"><h1>Deep Tide</h1><p>A small ocean that runs without you.</p></div>
+<div class="panel" id="title"><h1>Deep Tide</h1><p id="tagline">A small ocean that runs without you.</p>
+  <div id="hud" hidden>
+    <div class="clock"><span><b id="hudClock">0:00</b> <small id="hudDur">/ 10:00</small></span><span id="hudMin">Minute 1/10</span></div>
+    <div class="q"><span>Quota</span><span><b id="hudHaul">0</b> / <span id="hudDemand">0</span></span></div>
+    <div class="qbar" id="hudBar"><i></i></div>
+    <div class="sub" id="hudSub"></div>
+  </div>
+</div>
 
 <div class="panel" id="stats">
   <h2>Life in the water</h2>
@@ -82,6 +127,23 @@
   <button id="pause">Pause</button>
   <button id="speed">1×</button>
   <button id="reset">Reset</button>
+  <button id="menuBtn">Menu</button>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="card">
+    <h2>Deep Tide</h2>
+    <p>A small ocean that runs without you. How much of it do you take?</p>
+    <div class="modes">
+      <button data-mode="sandbox"><b>Sandbox</b><span>No clock, no score. Watch, meddle, break it, stock it back.</span></button>
+      <button data-mode="run"><b>Anthropocene run</b><span>Ten minutes. A fleet that needs more fish every minute, and water that keeps warming.</span></button>
+    </div>
+    <div class="actions" id="menuBack" hidden><button>Back</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="end" hidden>
+  <div class="card" id="endCard"></div>
 </div>
 
 <script>
@@ -97,6 +159,31 @@ let PK_CAP = 900;
 let RESCUE_ENABLED = false; // M1 tuning passes without it (see tune.js rescue=on|off)
 let COLD_SLOW = 0.9; // plankton growth lost per unit of warmth below 0.5 (cold slows it; heat is handled separately)
 let CATCH_RATE = 3;  // strikes per second a predator makes at prey within its reach (see `catch` below)
+
+// ---- "Anthropocene run": the one scored scenario. Deliberately narrow: constants here, logic in startRun/stepGame/runScore.
+// Quota is in catch value per minute: demand in minute m (0-based) = Q_BASE + Q_STEP * m, judged at the end of each minute
+// (no carry-over). Catch = animals killed by Net/Trawler, weighted by VALUE; protected species count as bycatch, worth 0.
+// Score (rounded) = PTS.quota * mean over minutes of min(1, haul/demand)
+//                 + PTS.bio * clamp((biodiversity - BIO_FLOOR) / (1 - BIO_FLOOR))   (biodiversity() at the end)
+//                 + PTS.water * waterQuality()                                       (at the end)
+//                 - PTS.lost per native species absent at the end
+//                 - PTS.bycatch per protected animal caught
+//                 - PTS.bankrupt once, if BANKRUPT_AFTER minutes in a row are missed
+const RUN = {
+  DUR: 600, MINUTE: 60,                 // sim seconds; speed-up still works because the clock is sim time
+  TEMP_START: 0.5, TEMP_END: 0.66,      // warmth drifts up on its own: climate pressure the player can't touch
+  Q_BASE: 4, Q_STEP: 2,                 // per-minute demand
+  BANKRUPT_AFTER: 3,
+  VALUE: { grazer: 1, hunter: 4, jelly: 0.5, invader: 2 }, // anything else (plankton aside) is protected bycatch
+  PROTECTED: ['turtle', 'shark', 'manta'],
+  DUMP_PAY: 1.0,                        // quota credit per second of dumping waste (industry contract)
+  BALLAST_PAY: 4, BALLAST_EVERY: 60,    // skipping ballast treatment pays once per ship; one ship a minute
+  BIO_FLOOR: 0.6,
+  PTS: { quota: 40, bio: 40, water: 20, lost: 10, bycatch: 1, bankrupt: 10 },
+  // typical do-nothing result (node tune.js 0 10 anthro bot=steward: score 41 +-5.5, biodiversity 92%), shown on the end screen.
+  // Re-run and update it whenever the constants above or the species table change.
+  STEWARD: { score: 41, bio: 0.92 },
+};
 
 // ---- Species table. Order = id. To add a species, add a row (and a draw shape in the renderer if it needs a new one).
 // Fields: speed/turn/vision (px/s, steering rate, px), meta (energy/s), max/rep/repCost (energy), breed (s between births, default 6),
@@ -164,12 +251,15 @@ for (const s of SPECIES) {
 }
 const [PLANKTON, GRAZER, HUNTER, JELLY, INVADER] = [0, 1, 2, 3, 4];
 const NATIVE = SPECIES.filter(s => !s.invasive);
+const RUN_VAL = SPECIES.map(s => RUN.VALUE[s.id] || 0);
+const RUN_PROTECTED = SPECIES.map(s => RUN.PROTECTED.includes(s.id));
 
 const zeros = () => new Array(N).fill(0);
 const S = {
   t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
   trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
   hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
+  game: { on: false },
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
@@ -187,6 +277,7 @@ function makeAgent(t, x, y) {
 function resetWorld() {
   S.t = 0; S.agents = []; S.newborns = []; S.poll.fill(0); S.avgPoll = 0; S.trawlers = []; S.hist = []; S.hacc = 0; S.events = [];
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
+  S.game = { on: false };
   for (const s of SPECIES) {
     for (let i = 0; i < (s.start || 0); i++) {
       const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
@@ -347,6 +438,7 @@ function step(dt) {
   S.agents = S.agents.filter(a => !a.dead);
   countAll();
   stepRecolonize(dt);
+  stepGame();
   for (const e of S.effects) e.t += dt;
   S.effects = S.effects.filter(e => e.t < 0.5);
   S.hacc += dt;
@@ -369,7 +461,7 @@ function stepRecolonize(dt) {
       S.harmed[i] = (S.t - S.harm[i] < 150 || !healthy || invaded) ? 1 : 0;
       if (S.harmed[i]) {
         log(s.name + ' have been wiped out.', 'warn');
-        if (!S.flags.stockHint) { S.flags.stockHint = true; S.flags.stockPulse = true; log('Stock them back now, or give the water time to heal: if it stays clean and cool they\'ll drift back in. Rebuild bottom-up.', 'good'); }
+        if (!S.flags.stockHint && !S.game.on) { S.flags.stockHint = true; S.flags.stockPulse = true; log('Stock them back now, or give the water time to heal: if it stays clean and cool they\'ll drift back in. Rebuild bottom-up.', 'good'); }
       }
     }
     const fed = Object.keys(r.needs).every(id => S.counts[IDX[id]] >= r.needs[id]);
@@ -420,9 +512,34 @@ function netAt(x, y, r) {
   let n = 0;
   for (const a of S.agents) {
     if (a.dead || a.t === PLANKTON) continue;
-    if (Math.hypot(a.x - x, a.y - y) < r) { a.dead = true; n++; S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2 }); }
+    if (Math.hypot(a.x - x, a.y - y) < r) { a.dead = true; n++; harvest(a); }
   }
   return n;
+}
+// an animal taken by a net or trawler: marks the harm, and in the scored run lands it on deck as catch (or protected bycatch)
+function harvest(a) {
+  S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2 });
+  const g = S.game;
+  if (!g.on || g.over || a.t === PLANKTON) return;
+  g.caught[a.t]++;
+  if (RUN_PROTECTED[a.t]) g.bycatch++; else { g.haul += RUN_VAL[a.t]; g.fish += RUN_VAL[a.t]; }
+}
+// dumping waste: pollution everywhere, and in the scored run an industry contract that pays toward the quota
+function dumpAt(x, y, dt) {
+  addPollution(x, y, 80, 0.08);
+  const g = S.game;
+  if (g.on && !g.over) { g.haul += RUN.DUMP_PAY * dt; g.dumped += RUN.DUMP_PAY * dt; }
+}
+// releasing invaders. In the scored run this is a ship skipping ballast-water treatment: it pays once, and a ship only
+// comes in every BALLAST_EVERY seconds. Returns false (nothing released) while no ship is in port.
+function releaseInvaders(x, y) {
+  const g = S.game;
+  if (g.on && !g.over) {
+    if (S.t - g.ballastAt < RUN.BALLAST_EVERY) return false;
+    g.ballastAt = S.t; g.haul += RUN.BALLAST_PAY; g.ballast += RUN.BALLAST_PAY;
+  }
+  spawnMany(INVADER, x, y, 3);
+  return true;
 }
 
 function startTrawl(y) { S.trawlers.push({ x: -80, y, band: 90, speed: 380 }); }
@@ -433,7 +550,7 @@ function stepTools(dt) {
     for (const a of S.agents) {
       if (a.dead || a.x < tr.x - 10 || a.x > nx + 10 || Math.abs(a.y - tr.y) > tr.band) continue;
       // bycatch: everything in the net dies, plankton too (at a lower rate)
-      if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2 }); }
+      if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; harvest(a); }
     }
     tr.x = nx;
   }
@@ -486,6 +603,63 @@ function biodiversity() {
   return h / Math.log(c.length);
 }
 function waterQuality() { return 1 - Math.min(1, S.avgPoll / 0.2); }
+
+// ---- Anthropocene run (pure state; the UI only reads S.game)
+const demandAt = m => RUN.Q_BASE + RUN.Q_STEP * m;
+function startRun() { // call right after resetWorld()
+  S.game = { on: true, over: false, minute: 0, haul: 0, mins: [], streak: 0, bankrupt: false, caught: zeros(), bycatch: 0,
+    fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
+  S.temp = RUN.TEMP_START;
+  log('The fleet needs ' + demandAt(0) + ' in catch this minute, and more every minute after.', 'warn');
+}
+function stepGame() {
+  const g = S.game;
+  if (!g.on || g.over) return;
+  S.temp = RUN.TEMP_START + (RUN.TEMP_END - RUN.TEMP_START) * Math.min(1, S.t / RUN.DUR);
+  for (const s of NATIVE) if (S.counts[s.i] === 0) g.everZero[s.i] = 1;
+  if (S.t >= (g.minute + 1) * RUN.MINUTE - 1e-6) closeMinute(g);
+  if (S.t >= RUN.DUR - 1e-6) { g.over = true; g.result = runScore(); }
+}
+function closeMinute(g) {
+  const demand = demandAt(g.minute), ok = g.haul >= demand - 1e-9, last = g.minute + 1 >= RUN.DUR / RUN.MINUTE;
+  g.mins.push({ demand, haul: g.haul, ok });
+  g.streak = ok ? 0 : g.streak + 1;
+  if (!last) {
+    if (ok) log('Minute ' + (g.minute + 1) + ': quota met. Next minute the fleet wants ' + demandAt(g.minute + 1) + '.', 'good');
+    else log('Minute ' + (g.minute + 1) + ': short by ' + Math.ceil(demand - g.haul) + '. Next minute the fleet wants ' + demandAt(g.minute + 1) + '.', 'warn');
+  }
+  if (!g.bankrupt && g.streak >= RUN.BANKRUPT_AFTER) { g.bankrupt = true; log('Three short minutes in a row. The fleet is bankrupt; the bank takes its cut.', 'warn'); }
+  g.haul = 0; g.minute++;
+}
+function runScore() {
+  const g = S.game, P = RUN.PTS;
+  const quota = g.mins.length ? g.mins.reduce((a, m) => a + Math.min(1, m.haul / m.demand), 0) / g.mins.length : 0;
+  const bio = biodiversity(), water = waterQuality();
+  const bioN = Math.max(0, Math.min(1, (bio - RUN.BIO_FLOOR) / (1 - RUN.BIO_FLOOR)));
+  const lost = NATIVE.filter(s => S.counts[s.i] === 0).map(s => s.name);
+  const recovered = NATIVE.filter(s => g.everZero[s.i] && S.counts[s.i] > 0).map(s => s.name);
+  const parts = [
+    { label: 'Quota delivered (' + Math.round(quota * 100) + '% on average)', pts: P.quota * quota },
+    { label: 'Biodiversity at the end (' + Math.round(bio * 100) + '%)', pts: P.bio * bioN },
+    { label: 'Water quality at the end (' + Math.round(water * 100) + '%)', pts: P.water * water },
+    { label: 'Species gone at the end (' + lost.length + ')', pts: -P.lost * lost.length },
+    { label: 'Protected animals caught (' + g.bycatch + ')', pts: -P.bycatch * g.bycatch },
+    { label: 'Fleet bankrupt', pts: g.bankrupt ? -P.bankrupt : 0 },
+  ].map(p => ({ label: p.label, pts: Math.round(p.pts) }));
+  const score = parts.reduce((a, p) => a + p.pts, 0);
+  const met = g.mins.filter(m => m.ok).length, delivered = g.fish + g.dumped + g.ballast;
+  const quotaTotal = g.mins.reduce((a, m) => a + m.demand, 0);
+  return { score, parts, quota, bio, water, lost, recovered, met, minutes: g.mins.length, delivered, quotaTotal,
+    fish: g.fish, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
+}
+function verdict(quota, lost, bio) {
+  if (quota >= 0.9 && lost === 0 && bio >= 0.85) return 'The fleet was fed and the ocean held. That is rarer than it sounds.';
+  if (quota >= 0.9 && lost >= 2) return 'Every quota met. Some of what lived here will not be back.';
+  if (quota >= 0.9) return 'The fleet was fed. The ocean paid for it.';
+  if (quota < 0.35 && lost === 0) return 'The water is still full of life. The harbour is quiet.';
+  if (lost >= 2) return 'Short on fish, and short on species. Nobody won this one.';
+  return 'Some fish, some losses. Most real oceans look like this.';
+}
 // ==SIM-END==
 </script>
 
@@ -645,9 +819,10 @@ function frame(now) {
       acc -= dt;
       if (ptr.down && ptr.inside) {
         if (tool === 'net') netAt(ptr.x, ptr.y, 50);
-        else if (tool === 'pollute') addPollution(ptr.x, ptr.y, 80, 0.08);
+        else if (tool === 'pollute') dumpAt(ptr.x, ptr.y, dt);
       }
       step(dt);
+      if (S.game.over) { paused = true; ptr.down = false; showEnd(); break; }
     }
     if (acc > dt) acc = 0;
   }
@@ -687,10 +862,95 @@ const HINTS = {
   invader: 'Click to release a few invaders. Nothing here has ever met them.',
   stock: 'Click to add the selected species. Rebuild from the bottom: plankton, then grazers, then what eats them.',
 };
+// the scored run: same tools, but now each one has a price and a payoff
+const HINTS_RUN = {
+  watch: 'The fleet needs catch every minute. Grazers pay 1, hunters 4, jellyfish half. Turtles, sharks and mantas are protected.',
+  net: 'Hold and drag to net. Picky, slow, and you choose what comes up. Protected animals in the net still die.',
+  trawl: 'Click a depth. Fast, a full hold in seconds, and everything in the band dies: bycatch, young fish, the lot.',
+  pollute: 'Hold to dump waste: a disposal contract pays ' + RUN.DUMP_PAY + ' toward the quota per second. The water remembers.',
+  invader: 'Click to let a ship skip ballast treatment: +' + RUN.BALLAST_PAY + ' toward the quota, one ship a minute. What rides in the ballast stays.',
+  stock: 'Locked in this run. Nobody is coming to restock it.',
+};
+
+let mode = null; // null (menu, ambient sandbox behind it) | 'sandbox' | 'run'
+const menuEl = document.getElementById('menu'), endEl = document.getElementById('end'), hudEl = document.getElementById('hud');
+const tempEl = document.getElementById('temp');
+const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+function newGame(m) {
+  mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
+  document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
+  document.getElementById('speed').textContent = '1×';
+  resetWorld(); logShown = 0; logEl.innerHTML = '';
+  const run = m === 'run';
+  if (run) startRun(); else S.temp = 0.5;
+  tempEl.value = Math.round(S.temp * 100); tempEl.disabled = run;
+  tempEl.parentElement.title = run ? 'The water warms on its own in this run' : '';
+  document.querySelector('[data-tool=stock]').disabled = run; stockSel.disabled = run;
+  document.querySelector('[data-tool=stock]').title = run ? 'Locked in the Anthropocene run' : '';
+  document.querySelector('[data-tool=pollute]').textContent = run ? 'Dump waste' : 'Pollute';
+  document.querySelector('[data-tool=invader]').textContent = run ? 'Skip ballast' : 'Release invader';
+  document.getElementById('tagline').textContent = run ? 'Anthropocene run' : 'A small ocean that runs without you.';
+  document.getElementById('hudDur').textContent = '/ ' + fmtClock(RUN.DUR);
+  hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true;
+  setTool('watch');
+}
+
+function updateHud() {
+  const g = S.game;
+  if (!g.on) return;
+  const t = Math.min(S.t, RUN.DUR), mins = RUN.DUR / RUN.MINUTE, m = Math.min(g.minute, mins - 1), demand = demandAt(m);
+  const haul = g.over && g.mins.length ? g.mins[g.mins.length - 1].haul : g.haul; // after 10:00, keep showing the last minute
+  document.getElementById('hudClock').textContent = fmtClock(t);
+  document.getElementById('hudMin').textContent = 'Minute ' + (m + 1) + '/' + mins;
+  document.getElementById('hudHaul').textContent = Math.floor(haul);
+  document.getElementById('hudDemand').textContent = demand;
+  const bar = document.getElementById('hudBar');
+  bar.firstElementChild.style.width = Math.min(100, haul / demand * 100) + '%';
+  bar.classList.toggle('met', haul >= demand);
+  const met = g.mins.filter(x => x.ok).length, missed = g.mins.length - met;
+  let sub = 'Met ' + met + ' · short ' + missed + (g.bycatch ? ' · protected caught ' + g.bycatch : '') + '<br>Warmth ' + Math.round(S.temp * 100) + '% and rising';
+  if (g.bankrupt) sub += '<br><span class="warn">The fleet is bankrupt.</span>';
+  else if (g.streak > 0) sub += '<br><span class="warn">' + g.streak + ' short in a row. ' + RUN.BANKRUPT_AFTER + ' and the fleet goes under.</span>';
+  document.getElementById('hudSub').innerHTML = sub;
+  tempEl.value = Math.round(S.temp * 100);
+  const wait = RUN.BALLAST_EVERY - (S.t - g.ballastAt);
+  document.querySelector('[data-tool=invader]').textContent = wait > 0 && !g.over ? 'Skip ballast (' + Math.ceil(wait) + 's)' : 'Skip ballast';
+}
+
+function showEnd() {
+  const r = S.game.result;
+  if (!r || !endEl.hidden) return;
+  const pct = v => Math.round(v * 100) + '%', list = a => a.length ? a.join(', ') : 'none';
+  const st = RUN.STEWARD;
+  document.getElementById('endCard').innerHTML = `
+    <h2>${fmtClock(RUN.DUR)}. The season is over.</h2>
+    <p class="verdict">${r.verdict}</p>
+    <div class="bigscore">${r.score}</div><p style="margin-top:0">points</p>
+    <table>
+      <tr><td>Catch delivered</td><td>${Math.round(r.delivered)} of ${r.quotaTotal} demanded · quota met ${r.met} of ${r.minutes} minutes</td></tr>
+      <tr><td>Where it came from</td><td>fish ${Math.round(r.fish)} · waste contracts ${Math.round(r.dumped)} · ballast ${Math.round(r.ballast)}</td></tr>
+      <tr><td>Biodiversity</td><td>${pct(r.bio)}</td></tr>
+      <tr><td>Water quality</td><td>${pct(r.water)}</td></tr>
+      <tr><td>Gone at the end</td><td>${list(r.lost)}</td></tr>
+      <tr><td>Lost, then came back</td><td>${list(r.recovered)}</td></tr>
+      <tr><td>Protected animals caught</td><td>${r.bycatch}</td></tr>
+    </table>
+    <h3>How the score adds up</h3>
+    <table>${r.parts.filter(p => p.pts || p.label.startsWith('Quota') || p.label.startsWith('Bio') || p.label.startsWith('Water'))
+      .map(p => `<tr><td>${p.label}</td><td class="${p.pts < 0 ? 'neg' : ''}">${p.pts > 0 ? '+' : ''}${p.pts}</td></tr>`).join('')}</table>
+    <p><b style="color:var(--text)">What would the steward have done?</b> Left the nets dry. That typically ends around
+      <b style="color:var(--text)">${st.score}</b> points: biodiversity ${pct(st.bio)}, no quota delivered, the fleet bankrupt.</p>
+    <div class="actions"><button id="again" class="on">Play again</button><button id="toSandbox">Sandbox</button></div>`;
+  endEl.hidden = false;
+  document.getElementById('again').onclick = () => newGame('run');
+  document.getElementById('toSandbox').onclick = () => newGame('sandbox');
+}
 
 function updateUI() {
   if ((uiTick++ % 6) === 0) {
-    document.querySelector('[data-tool=stock]').classList.toggle('pulse', S.flags.stockPulse && tool !== 'stock');
+    if (mode === 'run') updateHud();
+    document.querySelector('[data-tool=stock]').classList.toggle('pulse', S.flags.stockPulse && tool !== 'stock' && mode !== 'run');
     for (const sp of SPECIES) {
       const row = document.getElementById('row' + sp.i);
       row.querySelector('.n').textContent = S.counts[sp.i];
@@ -723,23 +983,39 @@ function drawChart() {
 }
 
 function setTool(t) {
+  if (t === 'stock' && mode === 'run') return; // locked in the scored run
   tool = t;
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  document.getElementById('hint').textContent = HINTS[t];
+  document.getElementById('hint').textContent = (mode === 'run' ? HINTS_RUN : HINTS)[t];
 }
 document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 document.getElementById('stockSel').addEventListener('change', () => setTool('stock'));
-document.getElementById('temp').addEventListener('input', e => { S.temp = e.target.value / 100; });
-document.getElementById('pause').addEventListener('click', e => { paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
+tempEl.addEventListener('input', e => { if (mode !== 'run') S.temp = e.target.value / 100; });
+document.getElementById('pause').addEventListener('click', e => { if (S.game.over) return; paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
 document.getElementById('speed').addEventListener('click', e => { speedMul = speedMul === 1 ? 2 : speedMul === 2 ? 4 : speedMul === 4 ? 0.5 : 1; e.target.textContent = speedMul + '×'; });
-document.getElementById('reset').addEventListener('click', () => { paused = false; speedMul = 1; document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on'); document.getElementById('speed').textContent = '1×'; resetWorld(); logShown = 0; logEl.innerHTML = ''; document.getElementById('temp').value = 50; S.temp = 0.5; });
+document.getElementById('reset').addEventListener('click', () => newGame(mode || 'sandbox')); // in the run: start the run over
+let pausedBeforeMenu = false;
+document.getElementById('menuBtn').addEventListener('click', () => {
+  if (!menuEl.hidden) return;
+  pausedBeforeMenu = paused; paused = true; ptr.down = false; // the run holds still while the menu is up
+  endEl.hidden = true; menuEl.hidden = false; document.getElementById('menuBack').hidden = !mode;
+});
+document.querySelector('#menuBack button').addEventListener('click', () => {
+  menuEl.hidden = true;
+  if (S.game.over) endEl.hidden = false; else paused = pausedBeforeMenu;
+});
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => newGame(b.dataset.mode)));
 
 view.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !e.isPrimary) return;
   const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true;
   view.setPointerCapture(e.pointerId);
   if (tool === 'trawl') startTrawl(p.y);
-  else if (tool === 'invader') { spawnMany(INVADER, p.x, p.y, 3); log('Something that doesn\'t belong here has been released.', 'warn'); }
+  else if (tool === 'invader') {
+    if (!releaseInvaders(p.x, p.y)) log('No ship in port yet. The next one is in ' + Math.ceil(RUN.BALLAST_EVERY - (S.t - S.game.ballastAt)) + ' s.');
+    else if (mode === 'run') log('A ship flushed its ballast untreated: +' + RUN.BALLAST_PAY + ' toward the quota. Something that doesn\'t belong here came with it.', 'warn');
+    else log('Something that doesn\'t belong here has been released.', 'warn');
+  }
   else if (tool === 'stock') { S.flags.stockPulse = false; const t = +document.getElementById('stockSel').value; spawnMany(t, p.x, p.y, SPECIES[t].stock); }
 });
 view.addEventListener('pointermove', e => { const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.inside = true; });
@@ -749,11 +1025,12 @@ view.addEventListener('pointerleave', () => { ptr.inside = false; });
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^(SELECT|INPUT)$/.test(e.target.tagName) || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
+  if (!menuEl.hidden || !endEl.hidden) return; // the mode picker / end screen is up
   const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock' }[e.key.toLowerCase()];
   if (k) setTool(k); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
 });
 
-resetWorld(); setTool('watch'); requestAnimationFrame(frame);
+resetWorld(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen
 </script>
 </body>
 </html>
