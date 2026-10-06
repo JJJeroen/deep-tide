@@ -91,35 +91,45 @@ const WW = 1600, WH = 900;
 const GC = 40, GCOLS = Math.ceil(WW / GC), GROWS = Math.ceil(WH / GC);
 const HC = 50, HCOLS = Math.ceil(WW / HC), HROWS = Math.ceil(WH / HC);
 let PK_CAP = 900;
+// Rescue immigration: while a native species is down to a handful of individuals (but not yet gone), the wider ocean sends
+// it one arrival at a time (see stepRecolonize). Off = populations must sustain themselves; recolonization after a species
+// has died out (`natural` / `after`) still happens either way. Owner decision pending: drop it, or keep it and make it visible.
+let RESCUE_ENABLED = false; // M1 tuning passes without it (see tune.js rescue=on|off)
+let COLD_SLOW = 0.9; // plankton growth lost per unit of warmth below 0.5 (cold slows it; heat is handled separately)
+let CATCH_RATE = 3;  // strikes per second a predator makes at prey within its reach (see `catch` below)
 
 // ---- Species table. Order = id. To add a species, add a row (and a draw shape in the renderer if it needs a new one).
-// Fields: speed/turn/vision (px/s, steering rate, px), meta (energy/s), max/rep/repCost (energy), cap (population limit),
+// Fields: speed/turn/vision (px/s, steering rate, px), meta (energy/s), max/rep/repCost (energy), breed (s between births, default 6),
+// cap (hard safety limit only: numbers are meant to be set by food and `crowd`, well below it),
 // life [min,max] seconds, pol (energy/s lost per unit pollution), start (initial count), startY [min,max], stock (added per click).
 // eats: ordered diet. prey = species id, gain = energy, reach = px to catch, below = only when energy < below*max,
-//       catch = {min,k}: success chance min(1, min + preyCount/k), so scarce prey is harder to catch.
+//       catch = {min,k}: chance per strike min(1, min + preyCount/k) (CATCH_RATE strikes/s), so scarce prey is harder to catch.
+//       Without `catch` prey in reach is always caught.
 // flee: {from:[ids], radius, burst, cost}. filter: eats whatever drifts into reach instead of chasing. move:'drift' = jelly-style bobbing.
-// sun: {y,pull} pulls toward a preferred depth. crowd: {k,tax} extra upkeep when the species is over k individuals.
+// sun: {y,pull} pulls toward a preferred depth. crowd: {k,tax} extra upkeep of tax*(count-k) energy/s per individual while the
+//   species is over k individuals: the density-dependent brake that keeps long-lived species off their cap.
 // satiate: stop hunting above this fraction of max energy.
 // recolonize: {after, natural, n, needs:{id:minCount}, rescue:{below,every}}: `after` = seconds to return after a player-caused loss (n arrivals),
-//   `natural` = quick silent return after a chance extinction, rescue = one arrival every `every` s while below `below` individuals.
+//   `natural` = quick silent return after a chance extinction, rescue = one arrival every `every` s while below `below` individuals
+//   (rescue only when RESCUE_ENABLED).
 const SPECIES = [
   { id: 'plankton', name: 'Plankton', color: '#8fe3a0', plant: true, start: 500, stock: 40 },
   { id: 'grazer', name: 'Grazers', color: '#5fd4d0', shape: 'fish', size: 5,
     speed: 42, turn: 4, vision: 70, meta: 2.6, max: 100, rep: 75, repCost: 38, pol: 5, cap: 260, life: [140, 220],
     start: 45, startY: [120, 630], stock: 5,
     eats: [{ prey: 'plankton', gain: 9, reach: 7 }],
-    flee: { from: ['hunter', 'invader'], radius: 95, burst: 1.5, cost: 2 },
+    flee: { from: ['hunter', 'invader'], radius: 95, burst: 1.3, cost: 2 },
     sun: { y: 260, pull: 1.1 }, recolonize: { after: 120, natural: 15, n: 6, needs: { plankton: 150 }, rescue: { below: 12, every: 30 } } },
   { id: 'hunter', name: 'Hunters', color: '#ff8a4c', shape: 'fish', size: 11,
-    speed: 74, turn: 3, vision: 130, meta: 2.2, max: 240, rep: 200, repCost: 95, pol: 4, cap: 60, life: [260, 400],
-    start: 7, startY: [150, 720], stock: 3, satiate: 0.85, chase: 1.5,
-    eats: [{ prey: 'grazer', gain: 48, reach: 10, catch: { min: 0.15, k: 250 } }, { prey: 'jelly', gain: 14, reach: 10, below: 0.35 }],
-    flee: { from: ['shark'], radius: 130, burst: 1.2, cost: 2 },
+    speed: 74, turn: 3, vision: 130, meta: 1.6, max: 240, rep: 200, repCost: 95, pol: 4, cap: 60, life: [260, 400],
+    start: 7, startY: [150, 720], stock: 3, satiate: 0.85, chase: 0.5, crowd: { k: 12, tax: 0.1 },
+    eats: [{ prey: 'grazer', gain: 65, reach: 10, catch: { min: 0.15, k: 250 } }, { prey: 'jelly', gain: 14, reach: 10, below: 0.35, catch: { min: 0, k: 300 } }],
+    flee: { from: ['shark'], radius: 60, burst: 1.0, cost: 2 },
     recolonize: { after: 240, natural: 15, n: 3, needs: { grazer: 25 }, rescue: { below: 4, every: 45 } } },
   { id: 'jelly', name: 'Jellyfish', color: '#c79bff', shape: 'jelly', size: 9,
-    speed: 16, turn: 1.5, vision: 30, meta: 0.4, max: 100, rep: 85, repCost: 42, pol: 0, cap: 200, life: [200, 320],
+    speed: 16, turn: 1.5, vision: 30, meta: 0.25, max: 100, rep: 85, repCost: 42, pol: 0, cap: 200, life: [200, 320],
     start: 10, startY: [100, 720], stock: 5, filter: true, move: 'drift',
-    eats: [{ prey: 'plankton', gain: 15, reach: 23 }],
+    eats: [{ prey: 'plankton', gain: 22, reach: 30 }],
     sun: { y: 260, pull: 0.6 }, crowd: { k: 30, tax: 0.04 },
     bloom: { at: 45, clear: 30, msg: 'A jellyfish bloom is taking over.' },
     recolonize: { after: 180, natural: 20, n: 4, needs: { plankton: 150 }, rescue: { below: 3, every: 60 } } },
@@ -128,18 +138,18 @@ const SPECIES = [
     start: 0, stock: 3, satiate: 0.85, chase: 1.5,
     eats: [{ prey: 'grazer', gain: 40, reach: 10 }, { prey: 'jelly', gain: 14, reach: 10 }] },
   { id: 'turtle', name: 'Sea turtles', color: '#d9b24c', shape: 'turtle', size: 14,
-    speed: 24, turn: 2, vision: 90, meta: 0.3, max: 200, rep: 160, repCost: 80, pol: 6, cap: 16, life: [500, 800],
-    start: 3, startY: [100, 600], stock: 2, satiate: 0.8, chase: 0.5, sun: { y: 300, pull: 0.7 },
-    eats: [{ prey: 'jelly', gain: 30, reach: 12, catch: { min: 0.1, k: 40 } }, { prey: 'plankton', gain: 2, reach: 14, below: 0.7 }],
+    speed: 24, turn: 2, vision: 90, meta: 0.6, max: 200, rep: 160, repCost: 80, breed: 60, pol: 6, cap: 16, life: [500, 800],
+    start: 3, startY: [100, 600], stock: 2, satiate: 0.8, chase: 0.5, sun: { y: 300, pull: 0.7 }, crowd: { k: 6, tax: 0.1 },
+    eats: [{ prey: 'jelly', gain: 30, reach: 12, catch: { min: 0, k: 300 } }, { prey: 'plankton', gain: 1.5, reach: 14, below: 0.7 }],
     recolonize: { after: 300, natural: 30, n: 2, needs: { jelly: 8 }, rescue: { below: 2, every: 120 } } },
   { id: 'shark', name: 'Sharks', color: '#9fb6cf', shape: 'shark', size: 17,
-    speed: 78, turn: 2.5, vision: 190, meta: 0.35, max: 400, rep: 330, repCost: 165, pol: 3, cap: 4, life: [700, 1100],
-    start: 2, startY: [200, 750], stock: 2, satiate: 0.8, chase: 1.5,
-    eats: [{ prey: 'hunter', gain: 140, reach: 12, catch: { min: 0.1, k: 30 } }],
+    speed: 78, turn: 2.5, vision: 190, meta: 1.0, max: 400, rep: 330, repCost: 165, breed: 60, pol: 3, cap: 12, life: [700, 1100],
+    start: 2, startY: [200, 750], stock: 2, satiate: 0.8, chase: 1.5, crowd: { k: 3, tax: 0.5 },
+    eats: [{ prey: 'hunter', gain: 140, reach: 12, catch: { min: 0, k: 200 } }],
     recolonize: { after: 400, natural: 30, n: 2, needs: { hunter: 4 }, rescue: { below: 2, every: 150 } } },
   { id: 'manta', name: 'Manta rays', color: '#5a7be6', shape: 'manta', size: 16,
-    speed: 40, turn: 1.5, vision: 30, meta: 0.8, max: 200, rep: 150, repCost: 75, pol: 4, cap: 10, life: [500, 800],
-    start: 3, startY: [150, 600], stock: 2, filter: true, sun: { y: 300, pull: 0.8 },
+    speed: 40, turn: 1.5, vision: 30, meta: 0.8, max: 200, rep: 150, repCost: 75, breed: 40, pol: 4, cap: 30, life: [500, 800],
+    start: 3, startY: [150, 600], stock: 2, filter: true, sun: { y: 300, pull: 0.8 }, crowd: { k: 6, tax: 0.3 },
     eats: [{ prey: 'plankton', gain: 8, reach: 34 }],
     recolonize: { after: 300, natural: 60, n: 2, needs: { plankton: 200 }, rescue: { below: 2, every: 120 } } },
 ];
@@ -276,8 +286,10 @@ function updMobile(a, dt) {
       if (s.chase) a.e -= s.chase * dt;
       if (dx * dx + dy * dy < d.reach * d.reach) {
         // rare prey scatters and hides, which keeps predators from driving it to zero
+        // p is the chance per strike; a predator strikes CATCH_RATE times per second while prey is in reach,
+        // so the per-step chance is 1-(1-p)^(CATCH_RATE*dt) and the outcome doesn't depend on the step size
         const p = d.catch ? Math.min(1, d.catch.min + S.counts[d.p] / d.catch.k) : 1;
-        if (Math.random() < p) eat(a, prey, d.gain);
+        if (Math.random() < 1 - Math.pow(1 - p, CATCH_RATE * dt)) eat(a, prey, d.gain);
       }
       break;
     }
@@ -302,7 +314,7 @@ function updMobile(a, dt) {
   if (a.y < 4) { a.y = 4; a.vy = Math.abs(a.vy); } else if (a.y > WH - 4) { a.y = WH - 4; a.vy = -Math.abs(a.vy); }
 
   if (a.e >= s.rep && a.cool <= 0 && S.counts[a.t] < s.cap) {
-    a.e -= s.repCost; a.cool = 6;
+    a.e -= s.repCost; a.cool = s.breed || 6;
     const k = makeAgent(a.t, a.x + rnd(-8, 8), a.y + rnd(-8, 8));
     k.e = s.repCost * 0.8;
     S.newborns.push(k);
@@ -318,9 +330,10 @@ function step(dt) {
     if (a.dead) continue;
     if (a.t === PLANKTON) updPlankton(a, dt); else updMobile(a, dt);
   }
-  // plankton growth: logistic + a small trickle carried in by currents. Heat and pollution suppress it.
+  // plankton growth: logistic + a small trickle carried in by currents. Pollution suppresses it, and so does any water
+  // away from temperate: heat stresses it hard, cold just slows it (COLD_SLOW = growth lost per unit of temp below 0.5).
   const pk = c[PLANKTON];
-  const heat = Math.max(0.05, 1 - 2.4 * Math.max(0, S.temp - 0.5));
+  const heat = S.temp > 0.5 ? Math.max(0.05, 1 - 2.4 * (S.temp - 0.5)) : 1 - COLD_SLOW * (0.5 - S.temp);
   S.plankAcc += (0.12 * pk * Math.max(0, 1 - pk / PK_CAP) * heat + 2.5 * heat) * dt;
   while (S.plankAcc >= 1) {
     S.plankAcc -= 1;
@@ -367,7 +380,7 @@ function stepRecolonize(dt) {
         S.heal[i] = 0; arrive(i, S.harmed[i] ? r.n : 2);
         if (S.harmed[i]) log(s.name + ' have returned from the open ocean.', 'good');
       }
-    } else if (r.rescue && n < r.rescue.below) {
+    } else if (RESCUE_ENABLED && r.rescue && n < r.rescue.below) {
       S.heal[i] = 0; S.rescue[i] += dt;
       if (S.rescue[i] >= r.rescue.every) { S.rescue[i] = 0; arrive(i, 1); }
     } else { S.heal[i] = 0; S.rescue[i] = 0; }
