@@ -940,7 +940,7 @@ const SHAPE_DRAW = {
     // mouth: a curved line under the snout
     g.strokeStyle = 'rgba(6,20,32,.55)'; g.lineWidth = Math.max(0.5, 0.045 * sz);
     g.beginPath(); g.moveTo(1.00 * sz, 0.03 * sz); g.quadraticCurveTo(0.92 * sz, 0.14 * sz, 0.78 * sz, 0.13 * sz); g.stroke();
-    eye(g, 0.76 * sz, -0.07 * sz, 0.07 * sz, 0.72);
+    eye(g, 0.76 * sz, -0.07 * sz, 0.07 * sz);
   },
 
   // top view: green shell with scutes, sand-coloured head and four tapered flippers
@@ -1039,6 +1039,14 @@ const SHAPE_DRAW = {
 };
 
 function buildSprites() {
+  // Fail loudly at load instead of silently skipping an animal: every shape needs all three tables, and every
+  // species needs bounds for the shape it names.
+  const shapes = new Set([...Object.keys(SPRITE_BOUNDS), ...Object.keys(SPRITE_FRAMES), ...Object.keys(SHAPE_DRAW)]);
+  for (const shape of shapes) {
+    const missing = ['SPRITE_BOUNDS', 'SPRITE_FRAMES', 'SHAPE_DRAW'].filter(t => !({ SPRITE_BOUNDS, SPRITE_FRAMES, SHAPE_DRAW })[t][shape]);
+    if (missing.length) throw new Error('sprite "' + shape + '": missing ' + missing.join(', '));
+  }
+  for (const sp of SPECIES) if (!sp.plant && !SPRITE_BOUNDS[sp.shape]) throw new Error('species "' + sp.id + '": no SPRITE_BOUNDS for shape "' + sp.shape + '"');
   return SPECIES.map(sp => {
     const shape = sp.plant ? null : sp.shape;
     if (!shape || !SPRITE_BOUNDS[shape]) return null;
