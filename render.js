@@ -63,39 +63,41 @@ function drawPollution() {
 
 // Fish hold a near-horizontal pitch: rotating straight into a vertical dive made them look like arrows.
 const MAX_PITCH = 0.45;
+// Animals are drawn larger than their sim size so a player can tell a hunter from a grazer at a glance.
+// Draw scale only: reach, vision and every other sim distance are unchanged.
+const RS = 1.3;
 
 function drawAgent(a, t) {
   const sp = SPECIES[a.t];
   if (sp.plant) { ctx.fillStyle = 'rgba(143,227,160,0.65)'; ctx.fillRect(a.x - 1, a.y - 1, 2.2, 2.2); return; }
   const spr = SPRITES[a.t];
   if (!spr) return;
-  // depth: slightly smaller and dimmer toward the seabed, so the water column has volume
+  // depth: slightly smaller toward the seabed and tinted by the water around them, so the column has volume
   const dep = Math.min(1, Math.max(0, (a.y - 70) / (WH - 140)));
   if (sp.shape === 'jelly') { // upright, never rotated, with a soft bloom behind it
     const cyc = t * spr.beat + a.phase / TAU;
     const frame = spr.frames[Math.floor((((cyc % 1) + 1) % 1) * spr.frames.length)];
     ctx.globalAlpha = 0.78 * (1 - 0.3 * dep);
-    ctx.drawImage(glow(sp.color), a.x - 26, a.y - 26, 52, 52);
+    ctx.drawImage(glow(sp.color), a.x - 26 * RS, a.y - 26 * RS, 52 * RS, 52 * RS);
     ctx.globalAlpha = 1 - 0.24 * dep;
-    ctx.drawImage(frame, a.x + spr.x0, a.y + spr.y0, spr.w, spr.h);
+    ctx.drawImage(frame, a.x + spr.x0 * RS, a.y + spr.y0 * RS, spr.w * RS, spr.h * RS);
     ctx.globalAlpha = 1;
     return;
   }
+  const set = spr.tints[Math.min(spr.tints.length - 1, Math.floor(dep * spr.tints.length))];
   const left = a.vx < 0;
   // pitch is clamped near horizontal; the belly-down flip keeps left-swimmers upright
   const pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, Math.atan2(a.vy, Math.abs(a.vx) || 1e-6)));
   const spd = Math.min(1.6, Math.hypot(a.vx, a.vy) / sp.speed);
   const cyc = t * spr.beat * (0.7 + 0.55 * spd) + a.phase / TAU;
-  const frame = spr.frames[Math.floor((((cyc % 1) + 1) % 1) * spr.frames.length)];
-  const k = 1 - 0.08 * dep;
+  const frame = set[Math.floor((((cyc % 1) + 1) % 1) * set.length)];
+  const k = (1 - 0.08 * dep) * RS;
   ctx.save();
   ctx.translate(a.x, a.y);
   ctx.rotate((left ? Math.PI : 0) + pitch);
   if (left) ctx.scale(1, -1);
-  ctx.globalAlpha = 1 - 0.24 * dep;
   ctx.drawImage(frame, spr.x0 * k, spr.y0 * k, spr.w * k, spr.h * k);
   ctx.restore();
-  ctx.globalAlpha = 1;
 }
 
 function drawEffects() {
