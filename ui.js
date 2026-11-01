@@ -2,7 +2,7 @@
 const rowsEl = document.getElementById('rows');
 for (const sp of SPECIES) {
   const r = document.createElement('div'); r.className = 'row'; r.id = 'row' + sp.i;
-  r.innerHTML = `<span class="dot" style="background:${sp.color}"></span><span>${sp.name}</span><span class="n">0</span>`;
+  r.innerHTML = `<span class="dot" style="background:${sp.color}"></span><span class="nm">${sp.name}</span><canvas class="spark" width="120" height="28"></canvas><span class="n">0</span>`;
   if (sp.invasive) r.style.display = 'none';
   rowsEl.appendChild(r);
 }
@@ -10,12 +10,11 @@ const stockSel = document.getElementById('stockSel');
 stockSel.innerHTML = '';
 for (const sp of NATIVE) { const o = document.createElement('option'); o.value = sp.i; o.textContent = sp.name; stockSel.appendChild(o); }
 stockSel.value = GRAZER;
-const chart = document.getElementById('chart'), cc = chart.getContext('2d');
 const logEl = document.getElementById('log');
 let logShown = 0, uiTick = 0;
 
 const HINTS = {
-  watch: 'Just watch. Sit with it for a minute before you touch anything.',
+  watch: 'Just watch. Sit with it for a minute before you touch anything. Point at an animal to see how it is doing.',
   net: 'Hold and drag to net fish. Plankton slips through.',
   trawl: 'Click a depth. A trawler sweeps the whole width and takes everything in its path.',
   pollute: 'Hold and paint. Pollution spreads and fades slowly.',
@@ -24,7 +23,7 @@ const HINTS = {
 };
 // the scored run: same tools, but now each one has a price and a payoff
 const HINTS_RUN = {
-  watch: 'The fleet needs catch every minute. Grazers pay 1, hunters 4, jellyfish half. Turtles, sharks and mantas are protected.',
+  watch: 'The fleet needs catch every minute. Grazers pay 1, hunters 4, jellyfish half. Turtles, sharks and mantas are protected. Point at an animal to see it.',
   net: 'Hold and drag to net. Picky, slow, and you choose what comes up. Protected animals in the net still die.',
   trawl: 'Click a depth. Fast, a full hold in seconds, and everything in the band dies: bycatch, young fish, the lot.',
   pollute: 'Hold to dump waste: a disposal contract pays ' + RUN.DUMP_PAY + ' toward the quota per second. The water remembers.',
@@ -41,7 +40,7 @@ function newGame(m) {
   mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
-  resetWorld(); logShown = 0; logEl.innerHTML = '';
+  resetWorld(); logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; inspect = null;
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;
   tempEl.value = Math.round(S.temp * 100); tempEl.disabled = run;
@@ -82,6 +81,16 @@ function showEnd() {
   const r = S.game.result;
   if (!r || !endEl.hidden) return;
   const pct = v => Math.round(v * 100) + '%', list = a => a.length ? a.join(', ') : 'none';
+  logEl.innerHTML = ''; // the run's messages would pile up behind the card
+  // species gone at the end, shown as faded silhouettes
+  const ghost = name => {
+    const sp = NATIVE.find(s => s.name === name), spr = sp && SPRITES[sp.i];
+    if (!spr) return name;
+    const c = document.createElement('canvas'), f = spr.frames[0];
+    c.width = f.width; c.height = f.height; c.getContext('2d').drawImage(f, 0, 0);
+    return `<span class="ghost"><img src="${c.toDataURL()}" alt="">${name}</span>`;
+  };
+  const lost = r.lost.length ? r.lost.map(ghost).join(' ') : 'none';
   const st = RUN.STEWARD;
   document.getElementById('endCard').innerHTML = `
     <h2>${fmtClock(RUN.DUR)}. The season is over.</h2>
@@ -92,7 +101,7 @@ function showEnd() {
       <tr><td>Where it came from</td><td>fish ${Math.round(r.fish)} · waste contracts ${Math.round(r.dumped)} · ballast ${Math.round(r.ballast)}</td></tr>
       <tr><td>Biodiversity</td><td>${pct(r.bio)}</td></tr>
       <tr><td>Water quality</td><td>${pct(r.water)}</td></tr>
-      <tr><td>Gone at the end</td><td>${list(r.lost)}</td></tr>
+      <tr><td>Gone at the end</td><td>${lost}</td></tr>
       <tr><td>Lost, then came back</td><td>${list(r.recovered)}</td></tr>
       <tr><td>Protected animals caught</td><td>${r.bycatch}</td></tr>
     </table>
@@ -119,7 +128,9 @@ function updateUI() {
     }
     document.getElementById('bioN').textContent = Math.round(biodiversity() * 100) + '%';
     document.getElementById('waterN').textContent = Math.round(waterQuality() * 100) + '%';
-    drawChart();
+    drawSparks();
+    // narrow screens: the log sits under the title panel (whose height changes with the run HUD) instead of over it
+    logEl.style.top = innerWidth <= 760 ? Math.round(titleEl.getBoundingClientRect().bottom + 8) + 'px' : '';
   }
   while (logShown < S.events.length) {
     const e = S.events[logShown++], d = document.createElement('div');
@@ -129,16 +140,23 @@ function updateUI() {
   }
 }
 
-function drawChart() {
-  const W = chart.width, H = chart.height;
-  cc.clearRect(0, 0, W, H);
-  const h = S.hist; if (h.length < 2) return;
-  for (let t = 0; t < N; t++) {
-    if (SPECIES[t].invasive && S.peak[t] === 0) continue;
-    const mx = Math.max(1, S.peak[t]);
-    cc.strokeStyle = COL[t]; cc.lineWidth = 2; cc.beginPath();
-    h.forEach((s, i) => { const x = i / 299 * W + (W - h.length / 299 * W), y = H - 4 - (s[t] / mx) * (H - 8); i ? cc.lineTo(x, y) : cc.moveTo(x, y); });
-    cc.stroke();
+// one small trend line per species row: the last 300 s, drawn from the left so it grows from t = 0,
+// scaled to that species' own peak; time spent at zero shows as a red line along the bottom
+const titleEl = document.getElementById('title');
+function drawSparks() {
+  const h = S.hist;
+  for (const sp of SPECIES) {
+    const cv = document.querySelector('#row' + sp.i + ' .spark'), g = cv.getContext('2d'), W = cv.width, H = cv.height, t = sp.i;
+    g.clearRect(0, 0, W, H);
+    if (h.length < 2) continue;
+    const mx = Math.max(1, S.peak[t]), X = i => i / 299 * W, Y = v => H - 3 - (v / mx) * (H - 6);
+    g.lineWidth = 2.5; g.lineJoin = 'round'; g.strokeStyle = COL[t]; g.beginPath();
+    h.forEach((s, i) => i ? g.lineTo(X(i), Y(s[t])) : g.moveTo(X(i), Y(s[t])));
+    g.stroke();
+    if (S.peak[t] > 0) {
+      g.strokeStyle = '#ff6b8a'; g.lineWidth = 3;
+      h.forEach((s, i) => { if (s[t] === 0 && i) { g.beginPath(); g.moveTo(X(i - 1), H - 1.5); g.lineTo(X(i), H - 1.5); g.stroke(); } });
+    }
   }
 }
 
@@ -170,7 +188,8 @@ view.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !e.isPrimary) return;
   const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true;
   view.setPointerCapture(e.pointerId);
-  if (tool === 'trawl') startTrawl(p.y);
+  if (tool === 'watch') { const a = pickAnimal(p.x, p.y, e.pointerType === 'mouse' ? 36 : 60); inspect = a ? { a, until: performance.now() + 4000 } : null; }
+  else if (tool === 'trawl') startTrawl(p.y);
   else if (tool === 'invader') {
     if (!releaseInvaders(p.x, p.y)) log('No ship in port yet. The next one is in ' + Math.ceil(RUN.BALLAST_EVERY - (S.t - S.game.ballastAt)) + ' s.');
     else if (mode === 'run') log('A ship flushed its ballast untreated: +' + RUN.BALLAST_PAY + ' toward the quota. Something that doesn\'t belong here came with it.', 'warn');
@@ -178,7 +197,7 @@ view.addEventListener('pointerdown', e => {
   }
   else if (tool === 'stock') { S.flags.stockPulse = false; const t = +document.getElementById('stockSel').value; spawnMany(t, p.x, p.y, SPECIES[t].stock); }
 });
-view.addEventListener('pointermove', e => { const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.inside = true; });
+view.addEventListener('pointermove', e => { const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse'; });
 for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; });
 view.addEventListener('contextmenu', e => e.preventDefault());
 view.addEventListener('pointerleave', () => { ptr.inside = false; });

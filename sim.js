@@ -370,7 +370,7 @@ function netAt(x, y, r) {
 }
 // an animal taken by a net or trawler: marks the harm, and in the scored run lands it on deck as catch (or protected bycatch)
 function harvest(a) {
-  S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2 });
+  S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2, sp: a.t }); // sp: the renderer hauls the right animal up
   const g = S.game;
   if (!g.on || g.over || a.t === PLANKTON) return;
   g.caught[a.t]++;
@@ -442,7 +442,8 @@ function sample() {
   if (c[PLANKTON] > 120) S.flags.plank = false;
   if (!S.flags.dead && S.avgPoll > 0.12) { S.flags.dead = true; log('A dead zone is spreading.', 'warn'); }
   if (S.avgPoll < 0.05) S.flags.dead = false;
-  if (!S.flags.hot && S.temp > 0.8) { S.flags.hot = true; log('The water is too warm. The plankton is struggling.', 'warn'); }
+  // warn from 0.7: that is where stepRecolonize stops counting the water as healthy, and by 0.75 most predators collapse
+  if (!S.flags.hot && S.temp >= 0.7) { S.flags.hot = true; log('The water is too warm. The plankton is struggling, and nothing that dies out will come back until it cools.', 'warn'); }
   if (S.temp < 0.65) S.flags.hot = false;
 }
 
