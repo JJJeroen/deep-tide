@@ -77,6 +77,8 @@ function hintChecks() {
     tip('lost' + s.i, s.name + ' are gone. If the water stays clean and cool and there is enough for them to eat, they drift back from the open ocean in ' + minutes(s.recolonize.after) + '.');
   if (g.on && g.mins.length && !g.mins[g.mins.length - 1].ok) tip('short', 'Short this minute. Each short minute lowers your quota score; three in a row bankrupt the fleet (−10, once). A species gone at the end costs 10 as well.');
   if (REEF.bleach > 0.35) tip('bleach', 'The reef is bleaching. In water this warm, corals expel the algae that feed them and turn white. If it stays warm they starve and algae take over the skeletons; a reef recovers far slower than it dies.');
+  if (S.t > 30 && SOUND.ac && SOUND.on && SOUND.ac.state === 'running')
+    tip('sound', 'Listen: every species is one note in the chord, as loud as it is common. Lose a species and its note goes silent. Murky water muffles it, warm water makes it waver, a clashing note means invaders. The menu explains every sound.');
   if (MOOD.n > 0.5) tip('night', 'Night. Point at an animal and the lamp lights it up; the glow is jellyfish and plankton.');
   if (g.on && g.ballast > 0) tip('ballast', '+' + RUN.BALLAST_PAY + ' toward the quota. The lionfish that came with it will hunt your grazers for the rest of the season.');
 }

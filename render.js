@@ -186,7 +186,7 @@ function drawTrawlers(t) {
     const mouth = tr.x, bx = tr.x + 230, len = 250, top = tr.y - tr.band, bot = tr.y + tr.band, cy = tr.y;
     // warps
     ctx.strokeStyle = 'rgba(16,24,30,.85)'; ctx.lineWidth = 1.6;
-    for (const y of [top, bot]) { ctx.beginPath(); ctx.moveTo(bx - 70, -38); ctx.quadraticCurveTo(bx - 70, y * 0.55, mouth + 5, y); ctx.stroke(); } // from the A-frame
+    for (const y of [top, bot]) { ctx.beginPath(); ctx.moveTo(bx + WARP_FROM.x, WARP_FROM.y); ctx.quadraticCurveTo(bx + WARP_FROM.x, y * 0.55, mouth + 5, y); ctx.stroke(); } // from the gantry block
     // net: hoops narrowing toward the codend, and the long lines between them
     const ex = mouth - len, fill = Math.min(1, (tr.catch || 0) / 40), cr = 10 + fill * 28;
     ctx.strokeStyle = 'rgba(225,232,236,.42)'; ctx.lineWidth = 1;
@@ -201,9 +201,8 @@ function drawTrawlers(t) {
     ctx.fillStyle = 'rgba(22,48,58,.94)'; ctx.beginPath(); ctx.ellipse(ex - cr * 0.6, cy, cr, cr * 0.72, 0, 0, 6.283); ctx.fill();
     ctx.fillStyle = 'rgba(190,235,240,.8)';
     for (let k = 0; k < Math.min(30, tr.catch || 0); k++) { const a = k * 2.39, rr = ((k * 7) % 10) / 10 * cr * 0.8; ctx.fillRect(ex - cr * 0.6 + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.7, 3, 1.2); }
-    // hull seen from below, with prop wash behind it
-    ctx.fillStyle = '#060c11';
-    ctx.beginPath(); ctx.moveTo(bx - 84, 0); ctx.lineTo(bx + 76, 0); ctx.quadraticCurveTo(bx + 66, 13, bx + 34, 18); ctx.lineTo(bx - 74, 16); ctx.closePath(); ctx.fill();
+    // hull below the waterline (boats.js), with prop wash behind it
+    ctx.save(); ctx.translate(bx, 0); drawTrawlerBelow(ctx, t, MOOD.n); ctx.restore();
     ctx.fillStyle = 'rgba(220,240,248,.35)';
     for (let k = 0; k < 18; k++) { const u = ((k * 37 + t * 60) % 140); ctx.beginPath(); ctx.arc(bx - 84 - u, 8 + ((k * 13) % 14), 1 + (k % 3) * 0.6, 0, 6.283); ctx.fill(); }
     // in the scored run, what this pass is worth

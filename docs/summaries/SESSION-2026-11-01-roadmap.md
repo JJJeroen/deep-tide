@@ -86,6 +86,17 @@ Owner authorised pushing straight to main (= GitHub Pages). Branch look-m3 fast-
 - Verified headless with an AnalyserNode (scratchpad pw/m5.js): voices drop to 0 when species die, filter 3200 -> 504 with pollution,
   engine on with a trawler, peaks <= 0.7 pre-compressor, no context before a gesture, no console warnings. Not listened to by a human yet.
 
+## Fourth request: owner: "looks and sounds good"; explain the sound; boats look too simple
+- Sound guide: "What you're hearing" (collapsible) in the menu, a one-time 'sound' hint once audio is running (coach.js),
+  tooltip on the Sound button.
+- boats.js: side views drawn per frame, facing right, origin on the waterline. Stern trawler (raked bow, forecastle,
+  white sheer stripe + red boot-top, rust streaks, registration, bridge with raked windows and mullions, funnel with a band
+  and exhaust, mast + turning radar, net drum, orange stern gantry whose block is WARP_FROM, rails, bow wave + wake, nav
+  lights/floods/lit windows at night); hull below the waterline with rudder and a turning propeller; container ship
+  (aft accommodation with window rows and bridge wings, funnel, ten bays of shaded ribbed boxes, lashing bridges, foremast);
+  horizon boats with mast and outrigger booms, mixed toward the haze. Fresh Opus review: lights ignored the ship's fade-in
+  alpha -> fixed (multiply, foam saves/restores).
+
 ## Next
 1. Owner plays Learn + one full Anthropocene run, with sound on; note what drags or confuses and whether the sound helps or grates (still the M6 gate).
 3. Known, left for M6: hunters and grazers still get pinned at side walls sometimes (now less visible thanks to the hysteresis);

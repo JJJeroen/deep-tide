@@ -80,6 +80,12 @@
   .card p { margin: 6px 0; color: var(--dim); }
   .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
   #menu .card { max-width: 660px; }
+  #menu { overflow-y: auto; align-items: safe center; } /* an opened sound guide can be taller than a phone */
+  .listen { margin-top: 12px; font-size: 13px; color: var(--dim); }
+  .listen summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  .listen ul { margin: 8px 0 4px; padding-left: 18px; }
+  .listen li { margin: 4px 0; }
+  .listen b { color: var(--text); font-weight: 600; }
   .modes button.first { border-color: var(--accent); }
   .modes button.first b::after { content: "Start here"; margin-left: 8px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
   /* coach: tutorial steps and hints, above the tool bar */
@@ -145,7 +151,7 @@
   <label class="s">Warmth <input type="range" id="temp" min="0" max="100" value="50"></label>
   <span class="sep"></span>
   <button id="hintsBtn" title="Hints (H)" aria-pressed="true">Hints</button>
-  <button id="soundBtn" title="Sound (M)" aria-pressed="true">Sound</button>
+  <button id="soundBtn" title="Sound (M): every species is one note in the chord; a lost species goes silent" aria-pressed="true">Sound</button>
   <button id="pause">Pause</button>
   <button id="speed">1×</button>
   <button id="reset">Reset</button>
@@ -161,6 +167,17 @@
       <button data-mode="sandbox"><b>Sandbox</b><span>No clock, no score. Watch, meddle, break it, stock it back.</span></button>
       <button data-mode="run"><b>Anthropocene run</b><span>Ten minutes. A fleet that needs more fish every minute, and water that keeps warming.</span></button>
     </div>
+    <details class="listen">
+      <summary>What you're hearing</summary>
+      <ul>
+        <li><b>The chord is the ocean.</b> Every species is one note, as loud as that species is common. When a species dies out, its note goes silent.</li>
+        <li><b>A note that clashes</b> means invaders are here.</li>
+        <li><b>Muffled sound</b> is polluted water. <b>A wavering chord</b> is water getting too warm. Night sounds darker.</li>
+        <li><b>Bells</b> ring often in an ocean with many species, and fall quiet as it loses them.</li>
+        <li><b>Engine</b>: a trawler at work. <b>Splash</b>: a net haul. <b>Horn</b>: a ship flushing ballast. <b>Gong</b>: a species just died out.</li>
+      </ul>
+      <p>The Sound button, or M, switches it off and on.</p>
+    </details>
     <div class="actions" id="menuBack" hidden><button>Back</button></div>
   </div>
 </div>
@@ -172,6 +189,7 @@
 <script src="sim.js"></script>
 <script src="sprites.js"></script>
 <script src="scene.js"></script>
+<script src="boats.js"></script>
 <script src="render.js"></script>
 <script src="coach.js"></script>
 <script src="audio.js"></script>

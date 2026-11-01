@@ -344,7 +344,7 @@ function drawSky(t) {
     sg.addColorStop(0, 'rgba(120,100,70,0)'); sg.addColorStop(1, `rgba(120,100,70,${0.5 * pol})`);
     ctx.fillStyle = sg; ctx.fillRect(0, -24, WW, 24);
   }
-  drawHorizon(t);
+  drawHorizon(t, lo);
   // the waterline
   ctx.strokeStyle = `rgba(225,245,250,${0.5 - 0.3 * n})`; ctx.lineWidth = 1.4; ctx.beginPath();
   for (let x = 0; x <= WW; x += 20) x ? ctx.lineTo(x, surfY(x, t)) : ctx.moveTo(0, surfY(0, t));
@@ -367,23 +367,18 @@ function stepFleet(dt) {
   for (const p of PLUMES) p.t += dt;
   while (PLUMES.length && PLUMES[0].t > 6) PLUMES.shift();
 }
-function drawHorizon(t) {
-  const n = MOOD.n, far = mixHex(mixHex('#3c4a54', '#7a7468', MOOD.pol * 0.5), '#0a1420', n);
-  ctx.fillStyle = rgbaH(far, 0.75); // two small fishing boats far out
-  for (const [x0, v] of [[260, 3], [930, -2]]) {
+function drawHorizon(t, haze) {
+  const n = MOOD.n, far = mixHex(mixHex(mixHex('#3c4a54', '#7a7468', MOOD.pol * 0.5), haze, 0.35), '#0a1420', n);
+  for (const [x0, v, s] of [[260, 3, 0.9], [930, -2, 0.75]]) { // two fishing boats far out
     const x = ((x0 + t * v) % WW + WW) % WW;
-    ctx.fillRect(x, -6, 22, 4); ctx.fillRect(x + 6, -10, 8, 4); ctx.fillRect(x + 15, -16, 1.2, 10);
+    drawFarBoat(ctx, x, surfY(x, t) - 0.5, s, rgbaH(far, 0.85), v > 0 ? 1 : -1);
   }
-  if (SHIP.a > 0.01 || SHIP.leaving) { // container ship: long hull, stacked boxes, bridge aft
-    const x = SHIP.x, y = surfY(x, t) - 1;
-    ctx.globalAlpha = SHIP.leaving ? 1 : SHIP.a;
-    ctx.fillStyle = mixHex('#2b3238', '#0a1018', n);
-    ctx.beginPath(); ctx.moveTo(x - 80, y - 10); ctx.lineTo(x + 92, y - 10); ctx.lineTo(x + 80, y); ctx.lineTo(x - 74, y); ctx.fill();
-    const box = ['#b5523b', '#3f6f8f', '#c99a3a', '#5b7f4a', '#8a4a5e'];
-    for (let i = 0; i < 9; i++) for (let j = 0; j < 2 + (i % 3 === 0 ? 1 : 0); j++) { ctx.fillStyle = mixHex(box[(i * 2 + j) % 5], '#0a1018', n * 0.8); ctx.fillRect(x - 50 + i * 14, y - 16 - j * 6, 13, 5.5); }
-    ctx.fillStyle = mixHex('#e6e3da', '#2a3038', n * 0.8); ctx.fillRect(x - 74, y - 26, 16, 16); ctx.fillRect(x - 70, y - 31, 8, 5);
-    if (n > 0.2) { ctx.fillStyle = `rgba(255,220,150,${n})`; ctx.fillRect(x - 71, y - 22, 10, 2); }
-    ctx.globalAlpha = 1;
+  if (SHIP.a > 0.01 || SHIP.leaving) { // container ship waiting in port for its ballast decision
+    const x = SHIP.x;
+    ctx.save(); ctx.globalAlpha = SHIP.leaving ? 1 : SHIP.a;
+    ctx.translate(x, surfY(x, t) + 0.5); ctx.scale(0.85, 0.85);
+    drawContainerShip(ctx, t, n, haze, SHIP.leaving);
+    ctx.restore();
   }
 }
 // ballast water: a murky stream that pours down from the surface where the ship flushed its tanks
@@ -403,23 +398,13 @@ function drawTrawlerDecks(t) {
   const n = MOOD.n;
   for (const tr of S.trawlers.concat(SAILING)) {
     const bx = tr.x + 230, by = surfY(bx, t);
-    // the warps above the waterline, from the A-frame down (render.js draws the same curves under water)
+    // the warps above the waterline, from the gantry block down (render.js draws the same curves under water)
     ctx.save(); ctx.beginPath(); ctx.rect(0, -SKY, WW, SKY); ctx.clip();
     ctx.strokeStyle = 'rgba(16,24,30,.85)'; ctx.lineWidth = 1.6;
-    for (const y of [tr.y - tr.band, tr.y + tr.band]) { ctx.beginPath(); ctx.moveTo(bx - 70, -38); ctx.quadraticCurveTo(bx - 70, y * 0.55, tr.x + 5, y); ctx.stroke(); }
+    for (const y of [tr.y - tr.band, tr.y + tr.band]) { ctx.beginPath(); ctx.moveTo(bx + WARP_FROM.x, WARP_FROM.y); ctx.quadraticCurveTo(bx + WARP_FROM.x, y * 0.55, tr.x + 5, y); ctx.stroke(); }
     ctx.restore();
     ctx.save(); ctx.translate(bx, by); ctx.rotate(Math.sin(t * 0.9 + tr.y) * 0.02);
-    ctx.fillStyle = mixHex('#7d2a22', '#22100e', n * 0.7);
-    ctx.beginPath(); ctx.moveTo(-84, -9); ctx.lineTo(80, -13); ctx.lineTo(76, 0); ctx.lineTo(-84, 0); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = mixHex('#e9e5da', '#3b4046', n * 0.75); ctx.fillRect(10, -32, 40, 20); ctx.fillRect(18, -42, 22, 10);
-    ctx.fillStyle = mixHex('#24323c', '#0a0f14', n * 0.5); ctx.fillRect(14, -28, 32, 5); ctx.fillRect(22, -39, 14, 4); // windows
-    ctx.strokeStyle = mixHex('#2c3238', '#0a0d10', n * 0.5); ctx.lineWidth = 2.6;
-    ctx.beginPath(); ctx.moveTo(-80, -9); ctx.lineTo(-70, -40); ctx.lineTo(-56, -10); ctx.moveTo(30, -42); ctx.lineTo(30, -60); ctx.moveTo(30, -54); ctx.lineTo(-40, -10); ctx.stroke();
-    if (n > 0.2) {
-      ctx.fillStyle = `rgba(255,214,140,${n})`; ctx.fillRect(14, -28, 32, 5); ctx.fillRect(22, -39, 14, 4);
-      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = n; ctx.drawImage(glow('#ffe2a8'), -40, -60, 120, 80); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = `rgba(120,255,140,${n})`; ctx.fillRect(29, -63, 3, 3);
-    }
+    drawTrawlerTop(ctx, t, n, tr.speed > 0);
     ctx.restore();
   }
 }
