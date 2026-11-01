@@ -31,7 +31,7 @@ const HINTS_RUN = {
   stock: 'Locked in this run. Nobody is coming to restock it.',
 };
 
-let mode = null; // null (menu, ambient sandbox behind it) | 'sandbox' | 'run'
+let mode = null; // null (menu, ambient sandbox behind it) | 'learn' | 'sandbox' | 'run' ('learn' is the sandbox with coach.js steps)
 const menuEl = document.getElementById('menu'), endEl = document.getElementById('end'), hudEl = document.getElementById('hud');
 const tempEl = document.getElementById('temp');
 const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
@@ -41,6 +41,7 @@ function newGame(m) {
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
   resetWorld(); logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; inspect = null;
+  for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;
   tempEl.value = Math.round(S.temp * 100); tempEl.disabled = run;
@@ -49,10 +50,11 @@ function newGame(m) {
   document.querySelector('[data-tool=stock]').title = run ? 'Locked in the Anthropocene run' : '';
   document.querySelector('[data-tool=pollute]').textContent = run ? 'Dump waste' : 'Pollute';
   document.querySelector('[data-tool=invader]').textContent = run ? 'Skip ballast' : 'Release invader';
-  document.getElementById('tagline').textContent = run ? 'Anthropocene run' : 'A small ocean that runs without you.';
+  document.getElementById('tagline').textContent = run ? 'Anthropocene run' : m === 'learn' ? 'Learn to play' : 'A small ocean that runs without you.';
   document.getElementById('hudDur').textContent = '/ ' + fmtClock(RUN.DUR);
   hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true;
   setTool('watch');
+  coachReset(m);
 }
 
 function updateHud() {
@@ -129,6 +131,7 @@ function updateUI() {
     document.getElementById('bioN').textContent = Math.round(biodiversity() * 100) + '%';
     document.getElementById('waterN').textContent = Math.round(waterQuality() * 100) + '%';
     drawSparks();
+    coachTick();
     // narrow screens: the log sits under the title panel (whose height changes with the run HUD) instead of over it
     logEl.style.top = innerWidth <= 760 ? Math.round(titleEl.getBoundingClientRect().bottom + 8) + 'px' : '';
   }
@@ -183,6 +186,10 @@ document.querySelector('#menuBack button').addEventListener('click', () => {
   if (S.game.over) endEl.hidden = false; else paused = pausedBeforeMenu;
 });
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => newGame(b.dataset.mode)));
+document.getElementById('hintsBtn').addEventListener('click', () => setHints(!hintsOn));
+setHints(hintsOn);
+// first visit: point new players at the tutorial
+if (!store.get('deeptide.learned')) document.querySelector('[data-mode=learn]').classList.add('first');
 
 view.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !e.isPrimary) return;
@@ -207,6 +214,7 @@ addEventListener('keydown', e => {
   if (!menuEl.hidden || !endEl.hidden) return; // the mode picker / end screen is up
   const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock' }[e.key.toLowerCase()];
   if (k) setTool(k); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
+  else if (e.key.toLowerCase() === 'h') setHints(!hintsOn);
 });
 
 resetWorld(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen

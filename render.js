@@ -133,8 +133,9 @@ function collectCatch() {
     e.seen = true;
     if (e.sp === undefined || e.sp === PLANKTON) continue;
     const tr = S.trawlers.find(tr => e.x >= tr.x - 40 && e.x <= tr.x + 15 && Math.abs(e.y - tr.y) <= tr.band + 1);
+    if (typeof coachCatch === 'function') coachCatch(e.sp, !!tr);
     if (tr) {
-      tr.catch = (tr.catch || 0) + 1;
+      tr.catch = (tr.catch || 0) + 1; (tr.bySp = tr.bySp || {})[e.sp] = (tr.bySp[e.sp] || 0) + 1;
       if (RUN_PROTECTED[e.sp]) tr.prot = (tr.prot || 0) + 1; else tr.value = (tr.value || 0) + RUN_VAL[e.sp];
       continue;
     }
@@ -235,6 +236,7 @@ function drawInspect(now) {
   if (!inspect) return;
   const a = inspect.a;
   if (a.dead || now > inspect.until || tool !== 'watch') { inspect = null; return; }
+  if (typeof coachSaw === 'function') coachSaw(a.t);
   const sp = SPECIES[a.t], sx = ox + a.x * scale, sy = oy + a.y * scale, r = Math.max(9, sp.size * RS * 1.7 * scale);
   const e = a.e / sp.max, mood = e < 0.3 ? 'starving' : e < 0.6 ? 'hungry' : 'well fed';
   const line1 = SINGULAR[sp.id] || sp.name, line2 = mood + ' · ' + fmtClock(a.age) + ' old';

@@ -77,7 +77,22 @@
     max-height: calc(100vh - 32px); overflow-y: auto; touch-action: pan-y; user-select: text; }
   .card h2 { margin: 0 0 4px; font-size: 16px; letter-spacing: .12em; text-transform: uppercase; font-weight: 600; }
   .card p { margin: 6px 0; color: var(--dim); }
-  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+  #menu .card { max-width: 660px; }
+  .modes button.first { border-color: var(--accent); }
+  .modes button.first b::after { content: "Start here"; margin-left: 8px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  /* coach: tutorial steps and hints, above the tool bar */
+  #coach { left: 50%; transform: translateX(-50%); width: min(460px, calc(100vw - 24px)); z-index: 5; font-size: 13px; }
+  #coach .ch { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+  #coach p { margin: 4px 0; }
+  #coach .task { color: var(--text); font-weight: 600; }
+  #coach .prog { color: var(--dim); font-variant-numeric: tabular-nums; }
+  #coach .steps { display: flex; flex-wrap: wrap; gap: 2px 12px; list-style: none; padding: 0; margin: 8px 0 0; color: var(--dim); font-size: 11px; }
+  #coach .steps li::before { content: "· "; }
+  #coach .steps li.done { color: var(--accent); } #coach .steps li.done::before { content: "✓ "; }
+  #coach .steps li.now { color: var(--text); } #coach .steps li.now::before { content: "▸ "; }
+  #coach .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  #coach .actions button { padding: 5px 10px; }
   .modes button { text-align: left; padding: 12px; line-height: 1.35; }
   .modes button b { display: block; font-size: 14px; margin-bottom: 4px; }
   .modes button span { color: var(--dim); font-size: 12px; }
@@ -92,7 +107,7 @@
   .card .actions[hidden] { display: none; }
   @media (max-width: 760px) { #bio, #title p { display: none; } #stats { width: 160px; } #log { left: 12px; transform: none; width: calc(100vw - 196px); text-align: left; font-size: 12px; } }
   @media (max-width: 760px) { #hud .clock small { display: none; } #hud .clock { flex-wrap: wrap; gap: 0 8px; } }
-  @media (max-width: 520px) { .modes { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .modes { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -114,6 +129,7 @@
 </div>
 
 <div class="panel" id="log"></div>
+<div class="panel" id="coach" hidden></div>
 
 <div class="panel" id="bar">
   <div id="hint"></div>
@@ -127,6 +143,7 @@
   <span class="sep"></span>
   <label class="s">Warmth <input type="range" id="temp" min="0" max="100" value="50"></label>
   <span class="sep"></span>
+  <button id="hintsBtn" title="Hints (H)" aria-pressed="true">Hints</button>
   <button id="pause">Pause</button>
   <button id="speed">1×</button>
   <button id="reset">Reset</button>
@@ -138,6 +155,7 @@
     <h2>Deep Tide</h2>
     <p>A small ocean that runs without you. How much of it do you take?</p>
     <div class="modes">
+      <button data-mode="learn"><b>Learn to play</b><span>Five short steps: what lives here, the net, the trawler, the quota, the ballast ship.</span></button>
       <button data-mode="sandbox"><b>Sandbox</b><span>No clock, no score. Watch, meddle, break it, stock it back.</span></button>
       <button data-mode="run"><b>Anthropocene run</b><span>Ten minutes. A fleet that needs more fish every minute, and water that keeps warming.</span></button>
     </div>
@@ -152,6 +170,7 @@
 <script src="sim.js"></script>
 <script src="sprites.js"></script>
 <script src="render.js"></script>
+<script src="coach.js"></script>
 <script src="ui.js"></script>
 </body>
 </html>
