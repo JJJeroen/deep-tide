@@ -1,7 +1,8 @@
 // ---------- the scene (M4, "the look") ----------
 // Sky and fleet above the waterline, a reef shelf that falls away into a drop-off, light shafts and caustics,
-// marine snow, a day/night cycle, and a darkness layer that every light source cuts into: the Watch lamp, glowing
-// jellyfish and plankton, a trawler's deck lights.
+// marine snow, a day/night cycle, and a darkness layer that every light source cuts into: glowing jellyfish and
+// plankton, a trawler's deck lights. (A Watch lamp was tried and dropped: the reef is never dark enough to need it;
+// it belongs to the deep layer, M7.)
 // Render only. Everything here reads S and never writes it, so the sim (and tune.js) are untouched by it.
 
 const SKY = 64;             // world px of sky above the waterline (y = 0); the sim world stays 0..WH below it
@@ -234,46 +235,9 @@ function drawDark(lights) {
   ctx.drawImage(darkCanvas, 0, 0, WW, WH);
 }
 
-// ---- the Watch lamp: a small ROV that hovers over what you point at and lights it up
-const LAMP = { x: WW / 2, y: 300, k: 0 };
-function lampTarget() {
-  if (tool !== 'watch') return null;
-  if (inspect && !inspect.a.dead) return inspect.a;
-  if (ptr.inside && ptr.mouse) return ptr;
-  return null;
-}
-function stepLamp(rdt) {
-  const tg = lampTarget();
-  LAMP.k += ((tg ? 1 : 0) - LAMP.k) * Math.min(1, rdt * 4);
-  if (tg) {
-    if (LAMP.k < 0.05) { LAMP.x = tg.x; LAMP.y = tg.y; }
-    LAMP.x += (tg.x - LAMP.x) * Math.min(1, rdt * 6); LAMP.y += (tg.y - LAMP.y) * Math.min(1, rdt * 6);
-  }
-}
-function drawLamp(t) {
-  if (LAMP.k < 0.02) return;
-  const x = LAMP.x, y = LAMP.y, rx = x, ry = Math.max(-6, y - 70) + Math.sin(t * 1.7) * 1.5;
-  ctx.save(); ctx.globalAlpha = LAMP.k;
-  // beam from the ROV down to the spot
-  ctx.globalCompositeOperation = 'lighter';
-  const bg = ctx.createLinearGradient(0, ry, 0, y + 40);
-  bg.addColorStop(0, 'rgba(255,240,200,.16)'); bg.addColorStop(1, 'rgba(255,240,200,0)');
-  ctx.fillStyle = bg; ctx.beginPath(); ctx.moveTo(rx - 6, ry + 4); ctx.lineTo(rx + 6, ry + 4); ctx.lineTo(x + 46, y + 40); ctx.lineTo(x - 46, y + 40); ctx.fill();
-  ctx.globalCompositeOperation = 'source-over';
-  // the ROV: yellow float block, black frame, two lamps, a tether up to the surface
-  ctx.strokeStyle = 'rgba(230,200,90,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(rx + 4, ry - 8); ctx.quadraticCurveTo(rx + 30, ry * 0.5, rx + 10, -2); ctx.stroke();
-  ctx.translate(rx, ry);
-  ctx.fillStyle = '#e8b836'; ctx.fillRect(-14, -8, 28, 11);
-  ctx.fillStyle = '#23292d'; ctx.fillRect(-16, 3, 32, 4); ctx.fillRect(-18, -5, 4, 8); ctx.fillRect(14, -5, 4, 8); ctx.fillRect(-5, -11, 10, 3);
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.drawImage(glow('#fff2c8'), -18, -3, 16, 16); ctx.drawImage(glow('#fff2c8'), 2, -3, 16, 16);
-  ctx.restore();
-}
-
 // ---- glows on top of the darkness: jellyfish, and at night the plankton
 function sceneLights() {
   const L = [], n = MOOD.n;
-  if (LAMP.k > 0.02) L.push({ x: LAMP.x, y: LAMP.y, r: 190, s: 0.95 * LAMP.k });
   for (const a of S.agents) {
     if (a.dead) continue;
     if (a.t === IDX.jelly) L.push({ x: a.x, y: a.y, r: 46, s: 0.45 });
@@ -368,11 +332,8 @@ function stepFleet(dt) {
   while (PLUMES.length && PLUMES[0].t > 6) PLUMES.shift();
 }
 function drawHorizon(t, haze) {
-  const n = MOOD.n, far = mixHex(mixHex(mixHex('#3c4a54', '#7a7468', MOOD.pol * 0.5), haze, 0.35), '#0a1420', n);
-  for (const [x0, v, s] of [[260, 3, 0.9], [930, -2, 0.75]]) { // two fishing boats far out
-    const x = ((x0 + t * v) % WW + WW) % WW;
-    drawFarBoat(ctx, x, surfY(x, t) - 0.5, s, rgbaH(far, 0.85), v > 0 ? 1 : -1);
-  }
+  const n = MOOD.n;
+  drawFarBoats(ctx, t, n, haze);
   if (SHIP.a > 0.01 || SHIP.leaving) { // container ship waiting in port for its ballast decision
     const x = SHIP.x;
     ctx.save(); ctx.globalAlpha = SHIP.leaving ? 1 : SHIP.a;

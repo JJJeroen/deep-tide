@@ -79,7 +79,7 @@ function hintChecks() {
   if (REEF.bleach > 0.35) tip('bleach', 'The reef is bleaching. In water this warm, corals expel the algae that feed them and turn white. If it stays warm they starve and algae take over the skeletons; a reef recovers far slower than it dies.');
   if (S.t > 30 && SOUND.ac && SOUND.on && SOUND.ac.state === 'running')
     tip('sound', 'Listen: every species is one note in the chord, as loud as it is common. Lose a species and its note goes silent. Murky water muffles it, warm water makes it waver, a clashing note means invaders. The menu explains every sound.');
-  if (MOOD.n > 0.5) tip('night', 'Night. Point at an animal and the lamp lights it up; the glow is jellyfish and plankton.');
+  if (MOOD.n > 0.5) tip('night', 'Night. The glow is jellyfish and plankton. The animals keep going as by day: night is only a look for now.');
   if (g.on && g.ballast > 0) tip('ballast', '+' + RUN.BALLAST_PAY + ' toward the quota. The lionfish that came with it will hunt your grazers for the rest of the season.');
 }
 

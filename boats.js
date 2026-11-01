@@ -30,8 +30,10 @@ function foam(g, t, x0, len, n, dir) { // bow wave and wake: flickering white fr
 
 // ---- stern trawler, above the waterline
 const TR_SHEER = [-88, -13, -20, -10, 50, -14]; // transom top -> control -> forecastle break
-function drawTrawlerTop(g, t, n, moving) {
-  const C = (c, k) => nightCol(c, n, k), sy = x => quadY(x, ...TR_SHEER);
+// o (optional): { haze, hz } mixes every colour toward the haze for a boat far away; hull: [top, bottom], band: funnel band
+function drawTrawlerTop(g, t, n, moving, o = {}) {
+  const hz = o.hz || 0, C = (c, k) => hz ? mixHex(nightCol(c, n, k), o.haze, hz) : nightCol(c, n, k), sy = x => quadY(x, ...TR_SHEER);
+  const hull = o.hull || ['#2d4a60', '#15232f'], band = o.band || '#d9822b';
   // exhaust drifting aft from the funnel
   for (let i = 0; i < 6; i++) {
     const k = (t * 0.45 + i / 6) % 1;
@@ -52,18 +54,18 @@ function drawTrawlerTop(g, t, n, moving) {
   g.strokeStyle = C('#e07a2a'); g.lineWidth = 1.1; g.beginPath(); g.moveTo(-46.6, -21); g.lineTo(-31, -19.5); g.stroke();
   // deckhouse and bridge (white), funnel behind them
   g.fillStyle = C('#22394c'); g.beginPath(); g.moveTo(-3, -12); g.lineTo(8, -12); g.lineTo(10, -37); g.lineTo(-1, -37); g.closePath(); g.fill();
-  g.fillStyle = C('#d9822b'); g.beginPath(); g.moveTo(-1.6, -31); g.lineTo(9.5, -31); g.lineTo(9.8, -27.5); g.lineTo(-1.9, -27.5); g.closePath(); g.fill();
+  g.fillStyle = C(band); g.beginPath(); g.moveTo(-1.6, -31); g.lineTo(9.5, -31); g.lineTo(9.8, -27.5); g.lineTo(-1.9, -27.5); g.closePath(); g.fill();
   g.fillStyle = C('#15191c'); g.fillRect(-1.2, -38.5, 11.4, 2.4);
   g.fillStyle = C('#e8e5dc'); g.fillRect(6, -28, 46, 16);                       // deckhouse
   g.fillStyle = C('#c9c6bd'); g.fillRect(6, -15, 46, 3);                        // its shaded foot
   g.beginPath(); g.moveTo(10, -28); g.lineTo(50, -28); g.lineTo(55.5, -40); g.lineTo(13, -40); g.closePath(); // bridge, raked front
   g.fillStyle = C('#efece4'); g.fill();
-  const win = n > 0.2 ? mixHex('#1d2a33', '#ffd88e', n) : '#1d2a33';
+  const win = n > 0.2 ? mixHex(C('#1d2a33'), '#ffd88e', n) : C('#1d2a33');
   g.fillStyle = win; g.beginPath(); g.moveTo(15, -37.4); g.lineTo(54.3, -37.4); g.lineTo(52.4, -33); g.lineTo(14.5, -33); g.closePath(); g.fill();
   g.strokeStyle = C('#e8e5dc'); g.lineWidth = 0.8; g.beginPath();
   for (let x = 20; x < 53; x += 5) { g.moveTo(x + 0.6, -37.4); g.lineTo(x, -33); }
   g.stroke();
-  g.fillStyle = n > 0.2 ? mixHex('#26343e', '#ffd88e', n) : '#26343e';                          // portholes
+  g.fillStyle = n > 0.2 ? mixHex(C('#26343e'), '#ffd88e', n) : C('#26343e');                          // portholes
   for (const x of [13, 20, 27]) { g.beginPath(); g.arc(x, -21, 1.5, 0, TAU); g.fill(); }
   g.fillStyle = C('#3a464f'); g.fillRect(40, -25, 4.5, 11);                      // door
   g.fillStyle = C('#2a3036'); g.fillRect(11, -41.6, 47, 1.8);                    // roof with overhang
@@ -78,15 +80,15 @@ function drawTrawlerTop(g, t, n, moving) {
   // hull: raised forecastle at the bow, sheer falling to a low working deck aft
   g.beginPath(); g.moveTo(-86, 0); g.lineTo(-88, -13); g.quadraticCurveTo(-20, -10, 50, -14);
   g.lineTo(51, -21); g.quadraticCurveTo(76, -22, 95, -26); g.quadraticCurveTo(90, -9, 80, 0); g.closePath();
-  const hg = g.createLinearGradient(0, -26, 0, 0); hg.addColorStop(0, C('#2d4a60')); hg.addColorStop(1, C('#15232f'));
+  const hg = g.createLinearGradient(0, -26, 0, 0); hg.addColorStop(0, C(hull[0])); hg.addColorStop(1, C(hull[1]));
   g.fillStyle = hg; g.fill();
   g.save(); g.clip();
   g.fillStyle = C('#a3382a'); g.fillRect(-92, -2.8, 192, 3);                    // red boot-top on the waterline
   g.strokeStyle = C('#e9e6dc'); g.lineWidth = 1.2; g.beginPath();                 // white sheer stripe
   g.moveTo(-88, -10); g.quadraticCurveTo(-20, -7, 50, -11); g.lineTo(51, -18); g.quadraticCurveTo(76, -19, 96, -23); g.stroke();
-  g.strokeStyle = 'rgba(120,64,36,.4)'; g.lineWidth = 1;                          // rust under the scuppers
+  g.strokeStyle = `rgba(120,64,36,${0.4 * (1 - hz)})`; g.lineWidth = 1;          // rust under the scuppers
   for (const x of [-62, -38, -14, 12, 38]) { const y = sy(x) + 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 0.6, y + 5 + (x & 3)); g.stroke(); }
-  g.fillStyle = C('#e9e6dc'); g.font = '600 5.5px ui-sans-serif, system-ui, sans-serif'; g.fillText('DT 37', 60, -12); // registration
+  if (!hz) { g.fillStyle = C('#e9e6dc'); g.font = '600 5.5px ui-sans-serif, system-ui, sans-serif'; g.fillText('DT 37', 60, -12); } // registration (too small to read far out)
   g.restore();
   g.fillStyle = C('#121a20'); g.beginPath(); g.ellipse(86, -19, 2.2, 1.4, 0, 0, TAU); g.fill(); // hawse pipe
   // bulwark rail along the working deck
@@ -168,12 +170,16 @@ function drawContainerShip(g, t, n, haze, moving) {
   if (n > 0.15) { g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha *= 0.35 * n; g.drawImage(glow('#ffe2a8'), -40, -50, 110, 50); g.restore(); }
 }
 
-// ---- small boats far out on the horizon: a hull, a wheelhouse, a mast and outrigger booms, all in the haze colour
-function drawFarBoat(g, x, y, s, col, dir) {
-  g.save(); g.translate(x, y); g.scale(s * dir, s);
-  g.fillStyle = col; g.strokeStyle = col; g.lineWidth = 1.4 / s;
-  g.beginPath(); g.moveTo(-14, 0); g.lineTo(-15, -4); g.quadraticCurveTo(0, -3, 14, -6); g.quadraticCurveTo(12, -2, 10, 0); g.closePath(); g.fill();
-  g.fillRect(2, -10, 8, 6); g.fillRect(-8, -7, 3, 3);
-  g.beginPath(); g.moveTo(5, -10); g.lineTo(5, -20); g.moveTo(5, -18); g.lineTo(-9, -12); g.moveTo(5, -18); g.lineTo(16, -11); g.stroke();
-  g.restore();
+// ---- fishing boats far out on the horizon: the same trawler, small, softened by the haze, each in its own colours
+const FAR_BOATS = [
+  { x0: 260, v: 4, s: 0.3, hull: ['#8a2f26', '#4a1814'], band: '#e8e2d0' },
+  { x0: 930, v: -3, s: 0.24, hull: ['#2f6a5a', '#173a32'], band: '#d9b24c' },
+];
+function drawFarBoats(g, t, n, haze) {
+  for (const b of FAR_BOATS) {
+    const x = ((b.x0 + t * b.v) % (WW + 200) + WW + 200) % (WW + 200) - 100;
+    g.save(); g.translate(x, surfY(x, t) + 0.3); g.scale(b.s * Math.sign(b.v), b.s); g.rotate(Math.sin(t * 1.1 + b.x0) * 0.03);
+    drawTrawlerTop(g, t, n, true, { haze, hz: 0.38, hull: b.hull, band: b.band });
+    g.restore();
+  }
 }

@@ -97,6 +97,10 @@ Owner authorised pushing straight to main (= GitHub Pages). Branch look-m3 fast-
   horizon boats with mast and outrigger booms, mixed toward the haze. Fresh Opus review: lights ignored the ship's fade-in
   alpha -> fixed (multiply, foam saves/restores).
 
+## Fifth exchange: owner: the lamp isn't needed ("even in the dark parts you can still see everything"); horizon boats still crude
+- Watch lamp + ROV removed (scene.js/render.js); the darkness layer stays (jellies, plankton, deck lights). A lamp belongs to the deep layer (M7).
+- Horizon boats: drawTrawlerTop now takes { haze, hz, hull, band }; FAR_BOATS draws two distant trawlers (red, green) at 0.3/0.24 scale, hazed.
+
 ## Next
 1. Owner plays Learn + one full Anthropocene run, with sound on; note what drags or confuses and whether the sound helps or grates (still the M6 gate).
 3. Known, left for M6: hunters and grazers still get pinned at side walls sometimes (now less visible thanks to the hysteresis);

@@ -269,7 +269,6 @@ function frame(now) {
   // advance by real elapsed time, not once per screen refresh, so the pace is the same on 60 Hz and 144 Hz displays
   const real = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
   lastNow = now;
-  stepLamp(real);
   if (!paused) {
     stepCatch(real * speedMul); stepSailing(real * speedMul);
     acc += real * speedMul;
@@ -299,7 +298,7 @@ function frame(now) {
   drawDark(sceneLights()); drawGlows(S.t);
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t);
-  drawLamp(S.t); drawTags(); // after the sky: the ROV and the value tags can reach above the waterline
+  drawTags(); // after the sky: value tags can reach above the waterline
   drawRuler(); drawCursor();
   ctx.restore();
   drawInspect(now);
