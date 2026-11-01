@@ -39,6 +39,10 @@
   #bio { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; display: flex; justify-content: space-between; }
   #bio b { color: var(--text); font-weight: 600; }
   #log { top: 12px; left: 50%; transform: translateX(-50%); width: min(420px, 40vw); pointer-events: none; background: none; border: none; backdrop-filter: none; text-align: center; }
+  #deep { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11px; line-height: 1.45; }
+  #deep .h { text-transform: uppercase; letter-spacing: .12em; font-weight: 600; }
+  #deep b { color: var(--text); font-weight: 600; }
+  #depthBtn { right: 12px; bottom: 110px; padding: 8px 12px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; z-index: 4; }
   #log div { margin: 2px 0; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.9), 0 0 2px #000; transition: opacity 1.5s; } /* readable on the pale sky too */
   #log .warn { color: var(--danger); }
   #log .good { color: var(--accent); }
@@ -133,7 +137,9 @@
   <h2>Life in the water</h2>
   <div id="rows"></div>
   <div id="bio"><span>Biodiversity <b id="bioN">–</b></span><span>Water <b id="waterN">–</b></span></div>
+  <div id="deep"><span class="h">The deep</span> <span id="deepN">–</span></div>
 </div>
+<button id="depthBtn" class="panel" hidden>The deep ↓</button>
 
 <div class="panel" id="log"></div>
 <div class="panel" id="coach" hidden></div>
@@ -175,6 +181,7 @@
         <li><b>Muffled sound</b> is polluted water. <b>A wavering chord</b> is water getting too warm. Night sounds darker.</li>
         <li><b>Bells</b> ring often in an ocean with many species, and fall quiet as it loses them.</li>
         <li><b>Engine</b>: a trawler at work. <b>Splash</b>: a net haul. <b>Horn</b>: a ship flushing ballast. <b>Gong</b>: a species just died out.</li>
+        <li><b>Clicks</b>: a sperm whale hunting in the deep. Everything sounds darker the deeper you look.</li>
       </ul>
       <p>The Sound button, or M, switches it off and on.</p>
     </details>
@@ -187,9 +194,11 @@
 </div>
 
 <script src="sim.js"></script>
+<script src="deep.js"></script>
 <script src="sprites.js"></script>
 <script src="scene.js"></script>
 <script src="boats.js"></script>
+<script src="deepview.js"></script>
 <script src="render.js"></script>
 <script src="coach.js"></script>
 <script src="audio.js"></script>

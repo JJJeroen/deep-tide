@@ -3,18 +3,36 @@ const view = document.getElementById('view'), ctx = view.getContext('2d');
 const COL = SPECIES.map(sp => sp.color);
 let scale = 1, ox = 0, oy = 0, tool = 'watch', paused = false, speedMul = 1; // speedMul = simulated seconds per real second
 const ptr = { x: 0, y: 0, down: false, inside: false };
+const drag = { on: false, sy: 0, cy: 0 }; // dragging with the Watch tool scrolls the camera
 
+// Camera: the world is a tall column (sky, the sunlit sim, the deep down to the abyssal floor). cam.y is the world y at the
+// top of the view; scrolled to the top, the view is exactly the sunlit scene. oy stays the screen position of world y = 0
+// (the surface) and moves with the camera, so everything that maps screen <-> world keeps working.
+const cam = { y: -SKY, target: -SKY };
+// Screen space the panels take: on a portrait phone the column starts below the species panel (as the sea did before),
+// and the camera always scrolls far enough that the abyssal floor clears the toolbar.
+let topReserve = 0, barH = 0;
+function measureChrome() {
+  const bar = document.getElementById('bar'), st = document.getElementById('stats'), db = document.getElementById('depthBtn');
+  barH = bar ? bar.offsetHeight + 12 : 0; // read everything first, then write, so no extra layout is forced
+  topReserve = innerWidth <= 760 && innerHeight > innerWidth && st ? Math.round(st.getBoundingClientRect().bottom) + 6 : 0;
+  const bottom = (barH + 6) + 'px'; if (db && db.style.bottom !== bottom) db.style.bottom = bottom; // just above the toolbar
+}
+const camMax = () => Math.max(-SKY, DEEP_BOTTOM - (innerHeight - barH - 10 - topReserve) / scale);
+const clampCam = y => Math.max(-SKY, Math.min(camMax(), y));
+function placeCam() { oy = topReserve - cam.y * scale; }
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   view.width = innerWidth * dpr; view.height = innerHeight * dpr;
-  // the view holds the sky band above the waterline too; oy stays the screen position of world y = 0 (the surface)
   scale = Math.min(innerWidth / WW, innerHeight / (WH + SKY));
-  ox = (innerWidth - WW * scale) / 2; oy = (innerHeight - (WH + SKY) * scale) / 2 + SKY * scale;
+  ox = (innerWidth - WW * scale) / 2;
+  measureChrome();
+  cam.y = clampCam(cam.y); cam.target = clampCam(cam.target); placeCam();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 addEventListener('resize', resize); resize();
 
-// clicks in the sky band land on the surface: no tool works above the water
+// clicks in the sky band land on the surface
 function toWorld(e) { return { x: (e.clientX - ox) / scale, y: Math.max(0, (e.clientY - oy) / scale) }; }
 
 const glowCache = {};
@@ -229,10 +247,12 @@ function pickAnimal(x, y, r) {
   return best;
 }
 function drawInspect(now) {
-  if (tool === 'watch' && ptr.inside && ptr.mouse) { const a = pickAnimal(ptr.x, ptr.y, 36); inspect = a ? { a, until: now + 250 } : (inspect && now < inspect.until ? inspect : null); }
+  if (tool === 'watch' && ptr.inside && ptr.mouse && !drag.on) { const a = pickAnimal(ptr.x, ptr.y, 36) || pickDeep(ptr.x, ptr.y, 36); inspect = a ? { a, until: now + 250 } : (inspect && now < inspect.until ? inspect : null); }
   if (!inspect) return;
   const a = inspect.a;
-  if (a.dead || now > inspect.until || tool !== 'watch') { inspect = null; return; }
+  const whale = a.pt !== undefined, deepOne = whale || a.k !== undefined; // the whale (only it has a phase timer `pt`), or an animal of the deep
+  if (a.dead || now > inspect.until || tool !== 'watch' || (whale && D.whale !== a)) { inspect = null; return; }
+  if (deepOne) { drawDeepInspect(a); return; }
   if (typeof coachSaw === 'function') coachSaw(a.t);
   const sp = SPECIES[a.t], sx = ox + a.x * scale, sy = oy + a.y * scale, r = Math.max(9, sp.size * RS * 1.7 * scale);
   const e = a.e / sp.max, mood = e < 0.3 ? 'starving' : e < 0.6 ? 'hungry' : 'well fed';
@@ -254,8 +274,22 @@ function drawInspect(now) {
   if (line3) { ctx.fillStyle = RUN_PROTECTED[a.t] ? '#ff8aa2' : '#e8cf8c'; ctx.fillText(line3, bx + 10, by + 51); }
 }
 
+// the label for an animal of the deep (or the whale): name, how it is doing, how deep
+function drawDeepInspect(a) {
+  const [line1, line2] = deepLabel(a), sx = ox + a.x * scale, sy = oy + a.y * scale, r = Math.max(9, (a.k ? DEEP_SP[a.k].size * 2.2 : 90) * scale);
+  ctx.strokeStyle = 'rgba(234,247,255,.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 6.283); ctx.stroke();
+  ctx.font = '600 13px ui-sans-serif, system-ui, sans-serif'; const w1 = ctx.measureText(line1).width;
+  ctx.font = '12px ui-sans-serif, system-ui, sans-serif'; const w = Math.max(w1, ctx.measureText(line2).width) + 20, h = 42;
+  let bx = sx + r + 8, by = Math.max(8, Math.min(innerHeight - h - 8, sy - h / 2));
+  if (bx + w > innerWidth - 8) bx = sx - r - 8 - w;
+  ctx.fillStyle = 'rgba(6,22,36,.9)'; ctx.strokeStyle = 'rgba(140,210,230,.3)'; ctx.lineWidth = 1;
+  ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(bx, by, w, h, 8); else ctx.rect(bx, by, w, h); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#d6eef5'; ctx.font = '600 13px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(line1, bx + 10, by + 19);
+  ctx.fillStyle = '#9fc0cc'; ctx.font = '12px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(line2, bx + 10, by + 35);
+}
+
 function drawCursor() {
-  if (!ptr.inside) return;
+  if (!ptr.inside || (tool !== 'watch' && ptr.y > WH)) return; // the tools only reach the sunlit water
   ctx.lineWidth = 1.5;
   if (tool === 'net') { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 50, 0, 6.283); ctx.stroke(); }
   else if (tool === 'pollute') { ctx.strokeStyle = 'rgba(190,130,50,.8)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 80, 0, 6.283); ctx.stroke(); }
@@ -269,17 +303,20 @@ function frame(now) {
   // advance by real elapsed time, not once per screen refresh, so the pace is the same on 60 Hz and 144 Hz displays
   const real = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
   lastNow = now;
+  cam.y += (cam.target - cam.y) * Math.min(1, real * 8); cam.y = clampCam(cam.y); placeCam();
+  if (ptr.cx !== undefined) { const p = toWorld({ clientX: ptr.cx, clientY: ptr.cy }); ptr.x = p.x; ptr.y = p.y; } // the world moved under a still pointer
+  stepLamp(real);
   if (!paused) {
     stepCatch(real * speedMul); stepSailing(real * speedMul);
     acc += real * speedMul;
     let n = 0, stepped = 0;
     while (acc >= dt && n++ < 8) {
       acc -= dt;
-      if (ptr.down && ptr.inside) {
+      if (ptr.down && ptr.inside && ptr.y <= WH && !drag.on) {
         if (tool === 'net') netAt(ptr.x, ptr.y, 50);
         else if (tool === 'pollute') dumpAt(ptr.x, ptr.y, dt);
       }
-      step(dt);
+      step(dt); stepDeep(dt);
       if (S.game.over) { paused = true; ptr.down = false; showEnd(); break; }
       stepped += dt;
     }
@@ -288,14 +325,15 @@ function frame(now) {
   }
   ctx.fillStyle = '#02070d'; ctx.fillRect(0, 0, innerWidth, innerHeight);
   ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale);
-  ctx.beginPath(); ctx.rect(0, -SKY, WW, WH + SKY); ctx.clip();
+  ctx.beginPath(); ctx.rect(0, -SKY, WW, SKY + DEEP_BOTTOM + 600); ctx.clip();
   collectCatch();
   updateMood(S.t);
   // under water, back to front; then the darkness and what glows through it; then the sky and the fleet on top
-  drawWater(); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t);
+  drawWater(); drawDeepWater(S.t); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t);
   for (const a of S.agents) drawAgent(a, S.t);
-  drawSnow(S.t); drawTrawlers(S.t);
-  drawDark(sceneLights()); drawGlows(S.t);
+  drawDeep(S.t);
+  drawSnow(S.t); drawDeepSnow(S.t); drawTrawlers(S.t);
+  drawDark(sceneLights()); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t);
   drawTags(); // after the sky: value tags can reach above the waterline

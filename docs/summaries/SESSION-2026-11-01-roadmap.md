@@ -121,6 +121,25 @@ Owner authorised pushing straight to main (= GitHub Pages). Branch look-m3 fast-
 - Visual honesty: the grazer migration is modest (~60 px); the plankton migration is real but tiny dots are hard to see at night.
 - Hints: night (migration), nutrients (when upwelling < 80% of normal), reefdead.
 
+## Seventh request: "let's do it" (M7). Owner chose: scroll down one tall column; keep loose grazer groups (no drawn schools)
+- deep.js (no DOM, never writes S): separate deep sim D below WH (DEEP_TOP 900 .. FLOOR_Y 2330, DEEP_BOTTOM 2400). One-way links:
+  S.sinkFlux (marine snow settling out of the sunlit layer; sim.js only gained this read-only value), S.night (lanternfish migrate
+  930-1150 at night, 1250-1650 by day), the whale breathes at the surface. Food web: snow -> lanternfish -> giant squid / anglerfish;
+  squid -> visiting sperm whale; carcasses + uneaten snow -> floor -> hagfish, crabs. Whale: first visit ~50 s, then every 150-230 s,
+  30% die at depth -> sinks -> whale fall (mass 2400, scavengers converge) -> bones (15 min). Immigration floors keep each species.
+  depthAt(y)/yAtDepth(m): 60 m at WH, 200 m at 1000, 1000 m at 1500, 4000 m at the floor.
+  Headless (sunlit+deep, 4x1800 s): lanternfish ~34, squid 1.5 (zero 2-4%), anglerfish ~6, hagfish ~15, crabs ~20, ~7 whale visits
+  and 1.5-2 falls per 30 min.
+- Camera (render.js): cam.y = world y at the top of the view; oy = topReserve - cam.y*scale. measureChrome: toolbar height and, on
+  portrait phones, a top reserve below the species panel. camMax lets the floor clear the toolbar. Wheel, keys (arrows, PgUp/PgDn,
+  Home/End), drag with Watch, depth button (bottom right). Tools refuse below WH (one log line).
+- deepview.js: deep water, slope silhouette, abyssal plain (nodules, sea cucumbers, brittle stars), black smoker with tube worms,
+  lanternfish (photophores), anglerfish (lure), giant squid, hagfish, crabs, sperm whale (blow at the surface), whale fall (carcass
+  over its skeleton, torn flesh, bacterial mats) and bones with bone worms; deep darkness ~93% with holes (lamp, lures, vent);
+  the Watch ROV lamp returns, deep only. Deep labels (depth in metres). Stats panel: one line for the deep. Ruler to 3000 m + zones.
+- Sound: the water filter closes with camera depth; sperm whale click trains while it dives/hunts. Sound guide updated.
+- Checks: sunlit idle 30 runs PASS (hunter 1.3%), all browser suites, 60 fps top and deep (headless).
+
 ## Next
 1. Owner plays Learn + one full Anthropocene run, with sound on; note what drags or confuses and whether the sound helps or grates (still the M6 gate).
 3. Known, left for M6: hunters and grazers still get pinned at side walls sometimes (now less visible thanks to the hysteresis);

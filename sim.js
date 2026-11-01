@@ -137,7 +137,7 @@ const S = {
   t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
   trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
   hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
-  game: { on: false }, night: 0, reef: { bleach: 0, dead: 0 }, detritus: 0, seabed: 0, upwell: 0,
+  game: { on: false }, night: 0, reef: { bleach: 0, dead: 0 }, detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
@@ -395,6 +395,7 @@ function stepNutrients(dt) {
   if (dt <= 0) return;
   const sink = S.detritus * Math.min(1, dt / NUT_SINK), rise = S.seabed * Math.min(1, dt / NUT_RISE);
   S.detritus -= sink; S.seabed += sink - rise; S.upwell = rise / dt;
+  S.sinkFlux = sink / dt; // what settles out of the sunlit layer: deep.js feeds the deep with it (read only)
 }
 
 // Immigration from the wider ocean, only while the water is healthy (clean, not overheated) and the species' food is plentiful.

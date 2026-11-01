@@ -41,7 +41,7 @@ function newGame(m) {
   resetScene();
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
-  resetWorld(); logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; seenTrawlers = []; inspect = null;
+  resetWorld(); resetDeep(); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; seenTrawlers = []; inspect = null;
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;
@@ -131,6 +131,9 @@ function updateUI() {
     }
     document.getElementById('bioN').textContent = Math.round(biodiversity() * 100) + '%';
     document.getElementById('waterN').textContent = Math.round(waterQuality() * 100) + '%';
+    const dc = D.counts; // the deep, in one line
+    document.getElementById('deepN').innerHTML = `${dc.lantern} lanternfish · ${dc.angler} anglerfish · ${dc.squid} giant squid · ${dc.hagfish + dc.crab} scavengers` + (D.whale ? ' · <b>a sperm whale</b>' : '') + (D.falls.length ? ' · <b>a whale fall</b>' : '');
+    measureChrome(); updateDepthBtn();
     drawSparks();
     coachTick();
     // narrow screens: the log sits under the title panel (whose height changes with the run HUD) instead of over it
@@ -196,9 +199,15 @@ if (!store.get('deeptide.learned')) document.querySelector('[data-mode=learn]').
 
 view.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !e.isPrimary) return;
-  const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
+  const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.cx = e.clientX; ptr.cy = e.clientY; ptr.down = true; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
   view.setPointerCapture(e.pointerId);
-  if (tool === 'watch') { const a = pickAnimal(p.x, p.y, e.pointerType === 'mouse' ? 36 : 60); inspect = a ? { a, until: performance.now() + 4000 } : null; }
+  drag.sy = e.clientY; drag.cy = cam.y; drag.on = false;
+  if (tool !== 'watch' && p.y > WH) { // the tools only reach the sunlit water
+    ptr.down = false;
+    if (!S.flags.deepTools) { S.flags.deepTools = true; log('Your tools only reach the sunlit water. The deep is for watching.'); }
+    return;
+  }
+  if (tool === 'watch') { const r = e.pointerType === 'mouse' ? 36 : 60, a = pickAnimal(p.x, p.y, r) || pickDeep(p.x, p.y, r); inspect = a ? { a, until: performance.now() + 4000 } : null; }
   else if (tool === 'trawl') startTrawl(p.y);
   else if (tool === 'invader') {
     if (!releaseInvaders(p.x, p.y)) log('No ship in port yet. The next one is in ' + Math.ceil(RUN.BALLAST_EVERY - (S.t - S.game.ballastAt)) + ' s.');
@@ -210,8 +219,16 @@ view.addEventListener('pointerdown', e => {
   }
   else if (tool === 'stock') { S.flags.stockPulse = false; const t = +document.getElementById('stockSel').value; spawnMany(t, p.x, p.y, SPECIES[t].stock); }
 });
-view.addEventListener('pointermove', e => { const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse'; });
-for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; });
+view.addEventListener('pointermove', e => {
+  const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.cx = e.clientX; ptr.cy = e.clientY; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
+  // dragging with Watch scrolls the column (a tap still picks an animal)
+  if (ptr.down && tool === 'watch' && (drag.on || Math.abs(e.clientY - drag.sy) > 8)) {
+    drag.on = true; inspect = null;
+    cam.target = cam.y = clampCam(drag.cy - (e.clientY - drag.sy) / scale);
+  }
+});
+view.addEventListener('wheel', e => { e.preventDefault(); cam.target = clampCam(cam.target + e.deltaY * (e.deltaMode === 1 ? 40 : 1) / scale); }, { passive: false });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; drag.on = false; });
 view.addEventListener('contextmenu', e => e.preventDefault());
 view.addEventListener('pointerleave', () => { ptr.inside = false; });
 addEventListener('keydown', e => {
@@ -222,6 +239,15 @@ addEventListener('keydown', e => {
   if (k) setTool(k); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
   else if (e.key.toLowerCase() === 'h') setHints(!hintsOn);
   else if (e.key.toLowerCase() === 'm' && !e.repeat) setSound(!SOUND.on, true);
+  else if (CAM_KEYS[e.key] !== undefined) { e.preventDefault(); cam.target = clampCam(CAM_KEYS[e.key] === 'top' ? -SKY : CAM_KEYS[e.key] === 'bottom' ? camMax() : cam.target + CAM_KEYS[e.key] * innerHeight / scale); }
 });
+const CAM_KEYS = { ArrowDown: 0.25, ArrowUp: -0.25, PageDown: 0.85, PageUp: -0.85, Home: 'top', End: 'bottom' };
+// the depth button: dive to the deep, or come back up
+const depthBtn = document.getElementById('depthBtn');
+depthBtn.addEventListener('click', () => { cam.target = cam.y > 300 ? -SKY : clampCam(yAtDepth(1000) - innerHeight / scale * 0.4); });
+function updateDepthBtn() {
+  const fits = camMax() <= -SKY + 1; depthBtn.hidden = fits || !menuEl.hidden;
+  const deep = cam.y > 300; depthBtn.textContent = deep ? 'Surface ↑' : 'The deep ↓'; depthBtn.classList.toggle('pulse', !deep && !!D.whale && D.whale.phase !== 'surface' && D.whale.phase !== 'leave');
+}
 
-resetWorld(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen
+resetWorld(); resetDeep(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen
