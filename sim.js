@@ -10,6 +10,7 @@ let PK_CAP = 900;
 // has died out (`natural` / `after`) still happens either way. Owner decision pending: drop it, or keep it and make it visible.
 let RESCUE_ENABLED = false; // M1 tuning passes without it (see tune.js rescue=on|off)
 let COLD_SLOW = 0.9; // plankton growth lost per unit of warmth below 0.5 (cold slows it; heat is handled separately)
+let WALL_TURN_SIZE = 14; // wanderers this size and up (turtles, sharks, mantas) turn away from side walls
 let CATCH_RATE = 3;  // strikes per second a predator makes at prey within its reach (see `catch` below)
 
 // ---- "Anthropocene run": the one scored scenario. Deliberately narrow: constants here, logic in startRun/stepGame/runScore.
@@ -219,6 +220,7 @@ function updMobile(a, dt) {
     if (s.move === 'drift') { // slow pulsing drift
       dy = Math.sin(S.t * 0.6 + a.phase) * 0.8; dx = Math.cos(a.ang) * 0.5;
       a.ang += (Math.random() - 0.5) * 1.5 * dt; mul = 0.5; wander = false;
+      if ((a.x < 90 && dx < 0) || (a.x > WW - 90 && dx > 0)) a.ang = Math.PI - a.ang; // drift away from the side walls
     }
   } else if (a.e < s.max * (s.satiate || 1.01)) {
     for (const d of s.eats) {
@@ -243,9 +245,20 @@ function updMobile(a, dt) {
   if (s.sun) dy += Math.max(-1, Math.min(1, (s.sun.y - a.y) / 220)) * s.sun.pull;
   const m = Math.hypot(dx, dy) || 1;
   dx /= m; dy /= m;
-  // soft walls steer wanderers only: a hunter or forager chasing something must be free to reach the edge
+  // same-species spacing: cruising animals of one kind keep about a body length apart instead of stacking into one
+  // shape. Only while wandering: a chase or an escape is never bent off its line by this (it is a look, not a tactic).
   if (wander) {
-    if (a.x < 90) dx += 1.2; else if (a.x > WW - 90) dx -= 1.2;
+    const sepR = s.size * 2.4, nb = nearest(a.x, a.y, sepR, BIT[a.t], a);
+    if (nb) { const ex = a.x - nb.x, ey = a.y - nb.y, d = Math.hypot(ex, ey) || 1, w = (1 - d / sepR) * 1.2; dx += ex / d * w; dy += ey / d * w; }
+  }
+  // soft walls steer wanderers only: a hunter or forager chasing something must be free to reach the edge.
+  // Big animals also turn their heading away from a side wall; otherwise heading and push cancel out and they slide
+  // up and down along it, pinned there for minutes. Small fish keep the old behaviour on purpose: hunters losing time
+  // at the walls is part of the M1 balance (with the turn for all species, hunters were at zero 2.4% vs 1.2%).
+  if (wander) {
+    const turn = s.size >= WALL_TURN_SIZE;
+    if (a.x < 90) { dx += 1.2; if (turn && Math.cos(a.ang) < 0) a.ang = Math.PI - a.ang; }
+    else if (a.x > WW - 90) { dx -= 1.2; if (turn && Math.cos(a.ang) > 0) a.ang = Math.PI - a.ang; }
     if (a.y < 40) dy += 1.2; else if (a.y > WH - 70) dy -= 1.2;
   }
   const m2 = Math.hypot(dx, dy) || 1;

@@ -38,6 +38,7 @@ const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padS
 
 function newGame(m) {
   mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
+  resetScene();
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
   resetWorld(); logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; seenTrawlers = []; inspect = null;
@@ -199,7 +200,10 @@ view.addEventListener('pointerdown', e => {
   else if (tool === 'trawl') startTrawl(p.y);
   else if (tool === 'invader') {
     if (!releaseInvaders(p.x, p.y)) log('No ship in port yet. The next one is in ' + Math.ceil(RUN.BALLAST_EVERY - (S.t - S.game.ballastAt)) + ' s.');
-    else if (mode === 'run') log('A ship flushed its ballast untreated: +' + RUN.BALLAST_PAY + ' toward the quota. Something that doesn\'t belong here came with it.', 'warn');
+    else if (mode === 'run') {
+      ballastShip(p.x, p.y);
+      log('A ship flushed its ballast untreated: +' + RUN.BALLAST_PAY + ' toward the quota. Something that doesn\'t belong here came with it.', 'warn');
+    }
     else log('Something that doesn\'t belong here has been released.', 'warn');
   }
   else if (tool === 'stock') { S.flags.stockPulse = false; const t = +document.getElementById('stockSel').value; spawnMany(t, p.x, p.y, SPECIES[t].stock); }

@@ -7,13 +7,15 @@ const ptr = { x: 0, y: 0, down: false, inside: false };
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   view.width = innerWidth * dpr; view.height = innerHeight * dpr;
-  scale = Math.min(innerWidth / WW, innerHeight / WH);
-  ox = (innerWidth - WW * scale) / 2; oy = (innerHeight - WH * scale) / 2;
+  // the view holds the sky band above the waterline too; oy stays the screen position of world y = 0 (the surface)
+  scale = Math.min(innerWidth / WW, innerHeight / (WH + SKY));
+  ox = (innerWidth - WW * scale) / 2; oy = (innerHeight - (WH + SKY) * scale) / 2 + SKY * scale;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 addEventListener('resize', resize); resize();
 
-function toWorld(e) { return { x: (e.clientX - ox) / scale, y: (e.clientY - oy) / scale }; }
+// clicks in the sky band land on the surface: no tool works above the water
+function toWorld(e) { return { x: (e.clientX - ox) / scale, y: Math.max(0, (e.clientY - oy) / scale) }; }
 
 const glowCache = {};
 function glow(color) {
@@ -23,26 +25,6 @@ function glow(color) {
   gr.addColorStop(0, color + 'cc'); gr.addColorStop(0.4, color + '33'); gr.addColorStop(1, color + '00');
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   return glowCache[color] = c;
-}
-
-function drawBackground(t) {
-  const g = ctx.createLinearGradient(0, 0, 0, WH);
-  g.addColorStop(0, '#0d5d82'); g.addColorStop(0.35, '#073a57'); g.addColorStop(1, '#010a12');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, WW, WH);
-  // slow light shafts; fouled water swallows them
-  const lk = 0.10 * (1 - Math.min(0.85, S.avgPoll * 6));
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 6; i++) {
-    const x = ((i * 290 + t * 6 * (1 + i % 3 * 0.3)) % (WW + 400)) - 200, w = 90 + i * 22;
-    const lg = ctx.createLinearGradient(0, 0, 0, WH * 0.7);
-    lg.addColorStop(0, `rgba(150,220,255,${lk})`); lg.addColorStop(1, 'rgba(150,220,255,0)');
-    ctx.fillStyle = lg; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x + w * 2.2 - 180, WH * 0.7); ctx.lineTo(x - 140, WH * 0.7); ctx.fill();
-  }
-  ctx.restore();
-  // seabed
-  ctx.fillStyle = '#04101a'; ctx.beginPath(); ctx.moveTo(0, WH);
-  for (let x = 0; x <= WW; x += 40) ctx.lineTo(x, WH - 14 - Math.sin(x * 0.011) * 8 - Math.sin(x * 0.031) * 4);
-  ctx.lineTo(WW, WH); ctx.fill();
 }
 
 // pollution is painted into a tiny one-pixel-per-cell canvas and scaled up with smoothing: soft clouds, no block seams
@@ -87,19 +69,22 @@ function drawAgent(a, t) {
   if (!spr) return;
   // depth: slightly smaller toward the seabed and tinted by the water around them, so the column has volume
   const dep = Math.min(1, Math.max(0, (a.y - 70) / (WH - 140)));
-  if (sp.shape === 'jelly') { // upright, never rotated, with a soft bloom behind it
+  if (sp.shape === 'jelly') { // upright, never rotated; its glow is drawn over the darkness (scene.js drawGlows)
     const cyc = t * spr.beat + a.phase / TAU;
     const frame = spr.frames[Math.floor((((cyc % 1) + 1) % 1) * spr.frames.length)];
-    ctx.globalAlpha = 0.78 * (1 - 0.3 * dep);
-    ctx.drawImage(glow(sp.color), a.x - 26 * RS, a.y - 26 * RS, 52 * RS, 52 * RS);
     ctx.globalAlpha = 1 - 0.24 * dep;
     ctx.drawImage(frame, a.x + spr.x0 * RS, a.y + spr.y0 * RS, spr.w * RS, spr.h * RS);
     ctx.globalAlpha = 1;
     return;
   }
   const set = spr.tints[Math.min(spr.tints.length - 1, Math.floor(dep * spr.tints.length))];
-  const left = a.vx < 0;
-  // pitch is clamped near horizontal; the belly-down flip keeps left-swimmers upright
+  // Facing changes only once the animal really swims the other way, so one moving straight up or down doesn't flicker
+  // left/right; and the turn is shown: the body narrows to its head-on profile and widens again the other way round.
+  if (a.face === undefined || t < a.ft) { a.face = a.vx < 0 ? -1 : 1; a.fx = a.face; a.ft = t; }
+  if (a.vx * a.face < -0.12 * sp.speed) a.face = -a.face;
+  a.fx += (a.face - a.fx) * Math.min(1, (t - a.ft) * 7); a.ft = t;
+  const sx = a.fx < 0 ? Math.min(-0.12, a.fx) : Math.max(0.12, a.fx);
+  // pitch is clamped near horizontal; mirroring before the rotation keeps left-swimmers belly-down and nose-first
   const pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, Math.atan2(a.vy, Math.abs(a.vx) || 1e-6)));
   const spd = Math.min(1.6, Math.hypot(a.vx, a.vy) / sp.speed);
   const cyc = t * spr.beat * (0.7 + 0.55 * spd) + a.phase / TAU;
@@ -107,8 +92,8 @@ function drawAgent(a, t) {
   const k = (1 - 0.08 * dep) * RS;
   ctx.save();
   ctx.translate(a.x, a.y);
-  ctx.rotate((left ? Math.PI : 0) + pitch);
-  if (left) ctx.scale(1, -1);
+  ctx.scale(sx, 1);
+  ctx.rotate(pitch);
   ctx.drawImage(frame, spr.x0 * k, spr.y0 * k, spr.w * k, spr.h * k);
   ctx.restore();
 }
@@ -201,7 +186,7 @@ function drawTrawlers(t) {
     const mouth = tr.x, bx = tr.x + 230, len = 250, top = tr.y - tr.band, bot = tr.y + tr.band, cy = tr.y;
     // warps
     ctx.strokeStyle = 'rgba(16,24,30,.85)'; ctx.lineWidth = 1.6;
-    for (const y of [top, bot]) { ctx.beginPath(); ctx.moveTo(bx - 72, 10); ctx.quadraticCurveTo(bx - 70, y * 0.55, mouth + 5, y); ctx.stroke(); }
+    for (const y of [top, bot]) { ctx.beginPath(); ctx.moveTo(bx - 70, -38); ctx.quadraticCurveTo(bx - 70, y * 0.55, mouth + 5, y); ctx.stroke(); } // from the A-frame
     // net: hoops narrowing toward the codend, and the long lines between them
     const ex = mouth - len, fill = Math.min(1, (tr.catch || 0) / 40), cr = 10 + fill * 28;
     ctx.strokeStyle = 'rgba(225,232,236,.42)'; ctx.lineWidth = 1;
@@ -285,10 +270,11 @@ function frame(now) {
   // advance by real elapsed time, not once per screen refresh, so the pace is the same on 60 Hz and 144 Hz displays
   const real = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
   lastNow = now;
+  stepLamp(real);
   if (!paused) {
     stepCatch(real * speedMul); stepSailing(real * speedMul);
     acc += real * speedMul;
-    let n = 0;
+    let n = 0, stepped = 0;
     while (acc >= dt && n++ < 8) {
       acc -= dt;
       if (ptr.down && ptr.inside) {
@@ -297,17 +283,25 @@ function frame(now) {
       }
       step(dt);
       if (S.game.over) { paused = true; ptr.down = false; showEnd(); break; }
+      stepped += dt;
     }
+    stepReef(stepped); stepFleet(stepped); // scene time follows the sim time actually stepped (capped at 8 steps)
     if (acc > dt) acc = 0;
   }
   ctx.fillStyle = '#02070d'; ctx.fillRect(0, 0, innerWidth, innerHeight);
   ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale);
-  ctx.beginPath(); ctx.rect(0, 0, WW, WH); ctx.clip();
+  ctx.beginPath(); ctx.rect(0, -SKY, WW, WH + SKY); ctx.clip();
   collectCatch();
-  drawBackground(S.t);
-  drawPollution(S.t);
+  updateMood(S.t);
+  // under water, back to front; then the darkness and what glows through it; then the sky and the fleet on top
+  drawWater(); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t);
   for (const a of S.agents) drawAgent(a, S.t);
-  drawEffects(); drawTrawlers(S.t); drawLifts(S.t); drawTags(); drawCursor();
+  drawSnow(S.t); drawTrawlers(S.t);
+  drawDark(sceneLights()); drawGlows(S.t);
+  drawEffects(); drawLifts(S.t);
+  drawSky(S.t); drawTrawlerDecks(S.t);
+  drawLamp(S.t); drawTags(); // after the sky: the ROV and the value tags can reach above the waterline
+  drawRuler(); drawCursor();
   ctx.restore();
   drawInspect(now);
   updateUI();

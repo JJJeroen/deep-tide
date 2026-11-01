@@ -52,8 +52,32 @@ Owner authorised pushing straight to main (= GitHub Pages). Branch look-m3 fast-
   trawl catch attribution at 4x, roundRect fallback (old Safari), ptr.mouse on tap
 - tune.js after sim edits: idle 20x30min PASS; steward 38.1±7.3, measured 75.9±13.6 (noise vs 40.0/80.8)
 
+## Second request, same day: "ga door met de rest van M4" + mantas flipping left/right at the left wall
+- Cause (measured, scratchpad m4/flip2.js): facing = sign(vx) with no hysteresis, and a wall trap: a wanderer whose heading
+  points into a side wall is pushed back by the soft wall, never turns, and slides up/down along it (mantas 16% of the time
+  at the wall, 127 facing flips per minute). Also found: left-swimmers were pitched the wrong way (nose up when diving).
+- Fix, render (render.js drawAgent): facing hysteresis (turns only when vx < -0.12*speed the other way), animated turn
+  (body narrows through head-on), scale-then-rotate so pitch is right for both directions.
+- Fix, sim (sim.js updMobile): same-species spacing while wandering; wanderers of size >= WALL_TURN_SIZE (turtle, shark,
+  manta) reflect their heading at side walls; drifting jellies too. Result: manta flips 127 -> 4/min, at wall 16% -> 1%.
+- Balance finding: giving the wall turn to ALL species (or the top wall too) let hunters hunt better and boom-bust
+  (idle 30 runs: hunters at zero 2.4% vs 1.2%, grazer mean 36 vs 44). Hunters losing time at walls is part of the M1
+  balance, so small fish keep it. Final: idle-equivalent variant 30 runs PASS (hunter 1.1%), cold 30 runs PASS (hunter 1.8%),
+  bots steward 39.9, measured 80.4, plunder -76 (sd 16; ref 40.0 / 80.8 / -67).
+- M4 built in scene.js (render only, never writes S): SKY band of 64 world px above y=0 (oy stays the screen y of the surface),
+  day/night (DAY_LEN 240 s sim, starts in the morning), water mood (warmth greens it, pollution browns it), shafts + caustics,
+  reef shelf on the left sloping into a drop-off (drawn behind animals, above the toolbar), coral bleaching from S.temp
+  (bleach ~25 s, die after ~4 min bleached, recover over ~15 min; per-colony tolerance so it is patchy), pollution film,
+  sea whips, marine snow scaled by plankton, darkness layer with holes (lamp, jellies, trawler deck lights), Watch = ROV lamp
+  (hover with mouse, tap on touch), glowing jellies + night plankton sparkle, sky (sun/moon cross it, stars, clouds, smog,
+  oil sheen), horizon boats, cargo ship waiting in port in the scored run (leaves after a ballast flush, with a plume),
+  trawler decks above water with warps from the A-frame, depth ruler 10-40 m (column = top 60 m of a reef wall).
+- Hints: bleaching (consequence) and night (lamp).
+- Perf: headless software rendering 60 fps old and new with idle CPU (the 30 fps seen first was CPU contention from tune.js).
+
 ## Next
 1. Owner plays Learn + one full Anthropocene run; note what drags or confuses (still the M6 gate).
-2. M4 rest: sky + fleet band, darkness layer + light sources, reef shelf/slope, bleaching, marine snow, caustics, night, lamp, depth ruler.
-3. M5 sound.
-Browser test scripts live in the session scratchpad only (shoot.js, m3.js, learn.js, fixes.js) — consider adding a tools/ smoke test.
+2. M5 sound.
+3. Known, left for M6: hunters and grazers still get pinned at side walls sometimes (now less visible thanks to the hysteresis);
+   fixing that for them needs a hunter re-tune (see balance finding above).
+Browser test scripts live in the session scratchpad only (shoot.js, m3.js, m4.js, learn.js, fixes.js, phone.js, perf.js) — consider adding a tools/ smoke test.
