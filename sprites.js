@@ -29,10 +29,10 @@ const LOOK = {
 // How far the drawing spills from the body centre, in body-size units.
 // Side-view animals keep y symmetric so the belly-down flip stays centred; the upright jelly does not need that.
 const SPRITE_BOUNDS = {
-  fish:    sz => ({ x0: -1.80 * sz, w: 3.00 * sz, y0: -1.20 * sz, h: 2.40 * sz }),
+  fish:    sz => ({ x0: -1.80 * sz, w: 3.00 * sz, y0: -1.36 * sz, h: 2.72 * sz }), // room for the lionfish's spines
   shark:   sz => ({ x0: -1.72 * sz, w: 2.95 * sz, y0: -0.92 * sz, h: 1.84 * sz }),
-  turtle:  sz => ({ x0: -1.22 * sz, w: 2.66 * sz, y0: -1.00 * sz, h: 2.00 * sz }),
-  manta:   sz => ({ x0: -2.10 * sz, w: 3.30 * sz, y0: -1.22 * sz, h: 2.44 * sz }),
+  turtle:  sz => ({ x0: -1.22 * sz, w: 2.66 * sz, y0: -1.16 * sz, h: 2.32 * sz }), // flipper tips reach ~1.1 at full flap
+  manta:   sz => ({ x0: -2.16 * sz, w: 3.36 * sz, y0: -1.22 * sz, h: 2.44 * sz }),
   jelly:   sz => ({ x0: -1.30 * sz, w: 2.60 * sz, y0: -1.40 * sz, h: 3.90 * sz }),
 };
 const SPRITE_FRAMES = { fish: 12, shark: 10, turtle: 8, manta: 10, jelly: 8 };

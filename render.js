@@ -132,7 +132,9 @@ function collectCatch() {
     if (e.kind !== 2 || e.seen) continue;
     e.seen = true;
     if (e.sp === undefined || e.sp === PLANKTON) continue;
-    const tr = S.trawlers.find(tr => e.x >= tr.x - 40 && e.x <= tr.x + 15 && Math.abs(e.y - tr.y) <= tr.band + 1);
+    // e.t is the sim time since the catch (it includes the catching step), and the trawler moved on since then:
+    // stepTools kills in [x - 10, x + speed*dt + 10] around the position x it had at that step, i.e. tr.x - speed * e.t
+    const tr = S.trawlers.find(tr => { const tx = tr.x - tr.speed * e.t; return e.x >= tx - 15 && e.x <= tx + tr.speed / 30 + 15 && Math.abs(e.y - tr.y) <= tr.band + 1; });
     if (typeof coachCatch === 'function') coachCatch(e.sp, !!tr);
     if (tr) {
       tr.catch = (tr.catch || 0) + 1; (tr.bySp = tr.bySp || {})[e.sp] = (tr.bySp[e.sp] || 0) + 1;
@@ -181,10 +183,21 @@ function drawTags() {
   ctx.textAlign = 'left';
 }
 
+// The sim drops a trawler once it is past the right edge (tr.x >= WW + 120), but its net trails 250 px behind and would
+// vanish mid-screen with the catch in it. Dropped trawlers keep sailing here, render-only, until the codend is off-screen.
+const SAILING = [];
+let seenTrawlers = [];
+function stepSailing(dt) {
+  for (const tr of seenTrawlers) if (!S.trawlers.includes(tr) && !SAILING.includes(tr) && tr.x >= WW) SAILING.push(tr);
+  seenTrawlers = S.trawlers.slice();
+  for (const tr of SAILING) tr.x += tr.speed * dt;
+  for (let i = SAILING.length - 1; i >= 0; i--) if (SAILING[i].x - 320 > WW) SAILING.splice(i, 1);
+}
+
 // The trawler: a hull at the surface (seen from below), warps down to the otter boards that hold the net mouth open,
 // and a cone net whose codend swells with what it takes. The net mouth is exactly the band the sim sweeps (tr.x, tr.y +- band).
 function drawTrawlers(t) {
-  for (const tr of S.trawlers) {
+  for (const tr of S.trawlers.concat(SAILING)) {
     const mouth = tr.x, bx = tr.x + 230, len = 250, top = tr.y - tr.band, bot = tr.y + tr.band, cy = tr.y;
     // warps
     ctx.strokeStyle = 'rgba(16,24,30,.85)'; ctx.lineWidth = 1.6;
@@ -250,7 +263,7 @@ function drawInspect(now) {
   if (bx + w > innerWidth - 8) bx = sx - r - 8 - w;
   by = Math.max(8, Math.min(innerHeight - h - 8, by));
   ctx.fillStyle = 'rgba(6,22,36,.9)'; ctx.strokeStyle = 'rgba(140,210,230,.3)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.roundRect(bx, by, w, h, 8); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(bx, by, w, h, 8); else ctx.rect(bx, by, w, h); ctx.fill(); ctx.stroke();
   ctx.fillStyle = sp.color; ctx.beginPath(); ctx.arc(bx + 12, by + 15, 4, 0, 6.283); ctx.fill();
   ctx.fillStyle = '#d6eef5'; ctx.font = '600 13px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(line1, bx + 21, by + 19);
   ctx.fillStyle = '#9fc0cc'; ctx.font = '12px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(line2, bx + 10, by + 35);
@@ -273,7 +286,7 @@ function frame(now) {
   const real = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
   lastNow = now;
   if (!paused) {
-    stepCatch(real * speedMul);
+    stepCatch(real * speedMul); stepSailing(real * speedMul);
     acc += real * speedMul;
     let n = 0;
     while (acc >= dt && n++ < 8) {

@@ -40,7 +40,7 @@ function newGame(m) {
   mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
-  resetWorld(); logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; inspect = null;
+  resetWorld(); logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; seenTrawlers = []; inspect = null;
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;
@@ -193,7 +193,7 @@ if (!store.get('deeptide.learned')) document.querySelector('[data-mode=learn]').
 
 view.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !e.isPrimary) return;
-  const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true;
+  const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
   view.setPointerCapture(e.pointerId);
   if (tool === 'watch') { const a = pickAnimal(p.x, p.y, e.pointerType === 'mouse' ? 36 : 60); inspect = a ? { a, until: performance.now() + 4000 } : null; }
   else if (tool === 'trawl') startTrawl(p.y);
