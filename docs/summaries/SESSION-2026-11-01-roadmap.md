@@ -75,9 +75,19 @@ Owner authorised pushing straight to main (= GitHub Pages). Branch look-m3 fast-
 - Hints: bleaching (consequence) and night (lamp).
 - Perf: headless software rendering 60 fps old and new with idle CPU (the 30 fps seen first was CPU contention from tune.js).
 
+## Third request, same day: "ga door met M5 sound" — audio.js (Web Audio, render only, reads S)
+- Chord: one voice per native species in an open D major 9 (plankton D2 root ... shark C#4), gain = sqrt(count / (0.6*peak)),
+  so a lost species leaves a hole in the chord; invaders add a G#3 sawtooth (tritone against the root).
+- Water low-pass over the music: 3200 Hz clean -> ~500 Hz polluted, darker at night; warmth adds pitch wobble (up to 30 cents);
+  more reverb at night. Brown-noise sea swell. Bells from D major pentatonic, spaced by biodiversity (fewer species, sparser).
+- Events: trawler engine drone panned with the boat, net-haul splash, ballast horn, low gong when a species hits zero.
+- Sound button + M key (localStorage deeptide.sound, default on); context created only in a user gesture (pointerup/touchend
+  needed for touch: a touch pointerdown is not a user activation); suspended when the tab is hidden; ducked while paused/menu.
+- Verified headless with an AnalyserNode (scratchpad pw/m5.js): voices drop to 0 when species die, filter 3200 -> 504 with pollution,
+  engine on with a trawler, peaks <= 0.7 pre-compressor, no context before a gesture, no console warnings. Not listened to by a human yet.
+
 ## Next
-1. Owner plays Learn + one full Anthropocene run; note what drags or confuses (still the M6 gate).
-2. M5 sound.
+1. Owner plays Learn + one full Anthropocene run, with sound on; note what drags or confuses and whether the sound helps or grates (still the M6 gate).
 3. Known, left for M6: hunters and grazers still get pinned at side walls sometimes (now less visible thanks to the hysteresis);
    fixing that for them needs a hunter re-tune (see balance finding above).
 Browser test scripts live in the session scratchpad only (shoot.js, m3.js, m4.js, learn.js, fixes.js, phone.js, perf.js) — consider adding a tools/ smoke test.

@@ -359,7 +359,7 @@ function drawSky(t) {
 // distant boats on the horizon, and in the scored run the cargo ship that waits in port for its ballast decision
 const SHIP = { home: 1180, x: 1180, leaving: false, a: 0 };
 const PLUMES = [];
-function ballastShip(x, y) { SHIP.leaving = true; PLUMES.push({ x, y, t: 0 }); }
+function ballastShip(x, y) { SHIP.leaving = true; PLUMES.push({ x, y, t: 0 }); soundHorn(); }
 function stepFleet(dt) {
   const g = S.game, inPort = g.on && !g.over && S.t - g.ballastAt >= RUN.BALLAST_EVERY;
   if (SHIP.leaving) { SHIP.x += 40 * dt; if (SHIP.x > WW + 140) { SHIP.leaving = false; SHIP.x = SHIP.home; SHIP.a = 0; } }

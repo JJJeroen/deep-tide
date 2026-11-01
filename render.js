@@ -305,5 +305,6 @@ function frame(now) {
   ctx.restore();
   drawInspect(now);
   updateUI();
+  audioTick(now);
   requestAnimationFrame(frame);
 }

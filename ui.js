@@ -189,6 +189,8 @@ document.querySelector('#menuBack button').addEventListener('click', () => {
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => newGame(b.dataset.mode)));
 document.getElementById('hintsBtn').addEventListener('click', () => setHints(!hintsOn));
 setHints(hintsOn);
+document.getElementById('soundBtn').addEventListener('click', () => setSound(!SOUND.on, true));
+setSound(SOUND.on);
 // first visit: point new players at the tutorial
 if (!store.get('deeptide.learned')) document.querySelector('[data-mode=learn]').classList.add('first');
 
@@ -219,6 +221,7 @@ addEventListener('keydown', e => {
   const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock' }[e.key.toLowerCase()];
   if (k) setTool(k); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
   else if (e.key.toLowerCase() === 'h') setHints(!hintsOn);
+  else if (e.key.toLowerCase() === 'm' && !e.repeat) setSound(!SOUND.on, true);
 });
 
 resetWorld(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen
