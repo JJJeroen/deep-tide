@@ -9,7 +9,31 @@ let PK_CAP = 900;
 // it one arrival at a time (see stepRecolonize). Off = populations must sustain themselves; recolonization after a species
 // has died out (`natural` / `after`) still happens either way. Owner decision pending: drop it, or keep it and make it visible.
 let RESCUE_ENABLED = false; // M1 tuning passes without it (see tune.js rescue=on|off)
-let COLD_SLOW = 0.9; // plankton growth lost per unit of warmth below 0.5 (cold slows it; heat is handled separately)
+let COLD_SLOW = 0.7; // plankton growth lost per unit of warmth below 0.5 (cold slows it; heat is handled separately)
+// ---- M6, "alive". Every part can be switched off for head-to-head tuning: TUNE_PATCH='ALIVE.shoal = false' node tune.js ...
+//   dvm:       day and night. The plankton rises to the surface at night and sinks into the mid-water by day, the largest
+//              daily migration on Earth; grazers follow their food. Hunters hunt by sight, so they see less in deep or dark water.
+//   shoal:     grazers school: cohesion, alignment, spacing (loose while foraging, tight while fleeing).
+//   refuge:    the reef shelf in the bottom-left corner lowers the catch chance for fish inside it; threatened grazers head
+//              for it. A reef killed by heat (S.reef.dead) stops sheltering anything.
+//   nutrients: carcasses and leftovers sink as detritus, settle on the seabed and well up again to feed the plankton.
+//              What nets and trawlers take leaves the system, so heavy fishing slowly starves the plankton.
+const ALIVE = { dvm: true, shoal: true, refuge: true, nutrients: true };
+const DAY_LEN = 240;                            // sim seconds per day and night; a run starts in the morning
+const REFUGE = { x1: 640, y0: 690 };            // the reef shelf (scene.js draws it in the same place)
+let NUT_U0 = 7.0;                                 // upwelling flux of an untouched ocean (measured with tune.js), see stepNutrients
+const NUT_SINK = 40, NUT_RISE = 90;
+let NUT_FLOOR = 0.88;                           // plankton growth with no upwelling at all, relative to an untouched ocean             // seconds: detritus settles, the seabed wells back up
+const dayPhase = t => ((t / DAY_LEN + 0.08) % 1 + 1) % 1;
+const smoothstep = (a, b, x) => { const k = Math.max(0, Math.min(1, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+function nightAt(t) {
+  const p = dayPhase(t);
+  return p < 0.6 ? 0 : p < 0.7 ? smoothstep(0.6, 0.7, p) : p < 0.9 ? 1 : 1 - smoothstep(0.9, 1, p);
+}
+let LIGHT_DEPTH = 600;                          // px over which sunlight falls to 1/e
+const lightAt = y => (1 - 0.8 * S.night) * Math.exp(-y / LIGHT_DEPTH); // sunlight (or moonlight) left at depth y
+const inRefuge = (x, y) => x < REFUGE.x1 && y > REFUGE.y0;
+const massOf = s => Math.pow(s.size || 1, 1.5) / 4;  // biomass a carcass returns as detritus
 let WALL_TURN_SIZE = 14; // wanderers this size and up (turtles, sharks, mantas) turn away from side walls
 let CATCH_RATE = 3;  // strikes per second a predator makes at prey within its reach (see `catch` below)
 
@@ -33,7 +57,7 @@ const RUN = {
   BALLAST_PAY: 4, BALLAST_EVERY: 60,    // skipping ballast treatment pays once per ship; one ship a minute
   BIO_FLOOR: 0.6,
   PTS: { quota: 40, bio: 40, water: 20, lost: 10, bycatch: 1, bankrupt: 10 },
-  // typical do-nothing result (node tune.js 0 10 anthro bot=steward: score 41 +-5.5, biodiversity 92%), shown on the end screen.
+  // typical do-nothing result (node tune.js 0 10 anthro bot=steward: score 41 +-5.5, biodiversity 92%; re-measured after M6: 40.6 +-5.8, 92%), shown on the end screen.
   // Re-run and update it whenever the constants above or the species table change.
   STEWARD: { score: 41, bio: 0.92 },
 };
@@ -59,10 +83,11 @@ const SPECIES = [
     start: 45, startY: [120, 630], stock: 5,
     eats: [{ prey: 'plankton', gain: 9, reach: 7 }],
     flee: { from: ['hunter', 'invader'], radius: 95, burst: 1.3, cost: 2 },
-    sun: { y: 260, pull: 1.1 }, recolonize: { after: 120, natural: 15, n: 6, needs: { plankton: 150 }, rescue: { below: 12, every: 30 } } },
+    sun: { y: 260, pull: 1.1, day: 320, night: 140 }, school: { r: 50, coh: 0.8, ali: 0.6, sep: 0.8, forage: 0.3 },
+    recolonize: { after: 120, natural: 15, n: 6, needs: { plankton: 150 }, rescue: { below: 12, every: 30 } } },
   { id: 'hunter', name: 'Hunters', color: '#ff8a4c', shape: 'fish', size: 11,
-    speed: 74, turn: 3, vision: 130, meta: 1.6, max: 240, rep: 200, repCost: 95, pol: 4, cap: 60, life: [260, 400],
-    start: 7, startY: [150, 720], stock: 3, satiate: 0.85, chase: 0.5, crowd: { k: 12, tax: 0.1 },
+    speed: 74, turn: 3, vision: 160, meta: 1.5, max: 240, rep: 200, repCost: 95, pol: 4, cap: 60, life: [260, 400],
+    start: 7, startY: [150, 720], stock: 3, satiate: 0.85, chase: 0.5, crowd: { k: 12, tax: 0.1 }, sight: 0.6,
     eats: [{ prey: 'grazer', gain: 65, reach: 10, catch: { min: 0.15, k: 250 } }, { prey: 'jelly', gain: 14, reach: 10, below: 0.35, catch: { min: 0, k: 300 } }],
     flee: { from: ['shark'], radius: 60, burst: 1.0, cost: 2 },
     recolonize: { after: 240, natural: 15, n: 3, needs: { grazer: 25 }, rescue: { below: 4, every: 45 } } },
@@ -70,7 +95,7 @@ const SPECIES = [
     speed: 16, turn: 1.5, vision: 30, meta: 0.25, max: 100, rep: 85, repCost: 42, pol: 0, cap: 200, life: [200, 320],
     start: 10, startY: [100, 720], stock: 5, filter: true, move: 'drift',
     eats: [{ prey: 'plankton', gain: 22, reach: 30 }],
-    sun: { y: 260, pull: 0.6 }, crowd: { k: 30, tax: 0.04 },
+    sun: { y: 260, pull: 0.6, spread: 150 }, crowd: { k: 16, tax: 0.04 },
     bloom: { at: 45, clear: 30, msg: 'A jellyfish bloom is taking over.' },
     recolonize: { after: 180, natural: 20, n: 4, needs: { plankton: 150 }, rescue: { below: 3, every: 60 } } },
   { id: 'invader', name: 'Invaders', color: '#ff3d7f', shape: 'fish', size: 9, spines: true, invasive: true,
@@ -112,7 +137,7 @@ const S = {
   t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
   trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
   hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
-  game: { on: false },
+  game: { on: false }, night: 0, reef: { bleach: 0, dead: 0 }, detritus: 0, seabed: 0, upwell: 0,
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
@@ -131,6 +156,8 @@ function resetWorld() {
   S.t = 0; S.agents = []; S.newborns = []; S.poll.fill(0); S.avgPoll = 0; S.trawlers = []; S.hist = []; S.hacc = 0; S.events = [];
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
+  // start at the steady state of an untouched ocean: no transient while the nutrient pools fill up
+  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
   for (const s of SPECIES) {
     for (let i = 0; i < (s.start || 0); i++) {
       const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
@@ -187,10 +214,18 @@ function countAll() {
   return c;
 }
 
+// The daily migration: the zooplankton half of the plankton sinks into the mid-water by day and rises to the surface at
+// night, each particle to its own depth (from a.phase) so the layer stays spread. Grazers follow their food up and down; hunters, who hunt by sight,
+// see less in the dark. New plankton still grows near the surface (spawnPlankton).
+let PK_DAY = [100, 420], PK_NIGHT = [15, 220], PK_SWIM = 9, PK_MIGRANT = 0.5; // depth ranges (px), swimming speed (px/s), share that migrates
 function updPlankton(a, dt) {
   a.age += dt;
   a.x += (Math.random() - 0.5) * 8 * dt;
   a.y += (Math.random() - 0.45) * 6 * dt;
+  if (ALIVE.dvm && a.phase < 6.283 * PK_MIGRANT) { // the zooplankton share swims; the phytoplankton stays where it grows
+    const f = a.phase / 6.283 / PK_MIGRANT, ty = PK_DAY[0] + f * (PK_DAY[1] - PK_DAY[0]) + (PK_NIGHT[0] + f * (PK_NIGHT[1] - PK_NIGHT[0]) - PK_DAY[0] - f * (PK_DAY[1] - PK_DAY[0])) * S.night;
+    a.y += Math.max(-PK_SWIM, Math.min(PK_SWIM, (ty - a.y) * 0.2)) * dt;
+  }
   if (a.x < 5) a.x = 5; else if (a.x > WW - 5) a.x = WW - 5;
   if (a.y < 3) a.y = 3; else if (a.y > WH - 3) a.y = WH - 3;
   if (a.age > a.maxAge || Math.random() < pollAt(a.x, a.y) * 0.3 * dt) a.dead = true;
@@ -198,6 +233,7 @@ function updPlankton(a, dt) {
 
 function eat(pred, prey, gain) {
   prey.dead = true;
+  if (prey.t !== PLANKTON) S.detritus += massOf(SPECIES[prey.t]) * 0.4; // scraps and waste from a meal sink too
   pred.e = Math.min(SPECIES[pred.t].max, pred.e + gain);
   S.effects.push({ x: prey.x, y: prey.y, t: 0, kind: prey.t === PLANKTON ? 0 : 1 });
 }
@@ -208,12 +244,16 @@ function updMobile(a, dt) {
   a.e -= (s.meta * tf + pollAt(a.x, a.y) * s.pol) * dt;
   if (s.crowd && S.counts[a.t] > s.crowd.k) a.e -= (S.counts[a.t] - s.crowd.k) * s.crowd.tax * dt;
   a.age += dt; a.cool -= dt;
-  if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; return; }
+  if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; S.detritus += massOf(s); return; } // the carcass sinks
 
   let dx = 0, dy = 0, mul = 0.5, wander = true;
   const thr = s.flee ? nearest(a.x, a.y, s.flee.radius, s.flee.mask, a) : null;
   if (thr) {
     dx = a.x - thr.x; dy = a.y - thr.y; mul = s.flee.burst; a.e -= s.flee.cost * dt; wander = false;
+    if (ALIVE.refuge && s.school && S.reef.dead < 0.9 && a.x < REFUGE.x1 + 260 && a.y > REFUGE.y0 - 260) { // close to a living reef: dive for cover
+      const m0 = Math.hypot(dx, dy) || 1, rx = Math.min(REFUGE.x1 - 60, a.x) - a.x, ry = Math.max(REFUGE.y0 + 60, a.y) - a.y, rm = Math.hypot(rx, ry) || 1;
+      dx = dx / m0 + rx / rm * 0.8; dy = dy / m0 + ry / rm * 0.8;
+    }
   } else if (s.filter) {
     const d = s.eats[0], f = nearest(a.x, a.y, d.reach, d.mask, a);
     if (f) eat(a, f, d.gain);
@@ -225,7 +265,9 @@ function updMobile(a, dt) {
   } else if (a.e < s.max * (s.satiate || 1.01)) {
     for (const d of s.eats) {
       if (d.below && a.e >= s.max * d.below) continue;
-      const prey = nearest(a.x, a.y, s.vision, d.mask, a);
+      // hunters that hunt by sight see less in deep or dark water
+      const vis = ALIVE.dvm && s.sight ? s.vision * (s.sight + (1 - s.sight) * lightAt(a.y)) : s.vision;
+      const prey = nearest(a.x, a.y, vis, d.mask, a);
       if (!prey) continue;
       dx = prey.x - a.x; dy = prey.y - a.y; mul = 1; wander = false;
       if (s.chase) a.e -= s.chase * dt;
@@ -233,7 +275,8 @@ function updMobile(a, dt) {
         // rare prey scatters and hides, which keeps predators from driving it to zero
         // p is the chance per strike; a predator strikes CATCH_RATE times per second while prey is in reach,
         // so the per-step chance is 1-(1-p)^(CATCH_RATE*dt) and the outcome doesn't depend on the step size
-        const p = d.catch ? Math.min(1, d.catch.min + S.counts[d.p] / d.catch.k) : 1;
+        let p = d.catch ? Math.min(1, d.catch.min + S.counts[d.p] / d.catch.k) : 1;
+        if (ALIVE.refuge && SPECIES[prey.t].school && inRefuge(prey.x, prey.y)) p *= 1 - 0.65 * (1 - S.reef.dead); // small fish hide in the reef; a dead one hides nothing
         if (Math.random() < 1 - Math.pow(1 - p, CATCH_RATE * dt)) eat(a, prey, d.gain);
       }
       break;
@@ -242,12 +285,38 @@ function updMobile(a, dt) {
 
   if (wander) { a.ang += (Math.random() - 0.5) * 4 * dt; dx = Math.cos(a.ang); dy = Math.sin(a.ang); }
   // some species drift back toward the sunlit layer where the plankton lives
-  if (s.sun) dy += Math.max(-1, Math.min(1, (s.sun.y - a.y) / 220)) * s.sun.pull;
+  // with day and night, migrants follow the light: deep by day, near the surface at night
+  // (grazers follow the migrating plankton: their preferred depth moves with it). `spread` gives each animal its own depth
+  // around the species' one, so a species doesn't line up in a single band.
+  if (s.sun) {
+    let sunY = ALIVE.dvm && s.sun.night !== undefined ? s.sun.day + (s.sun.night - s.sun.day) * S.night : s.sun.y;
+    if (s.sun.spread) sunY += (a.phase / 6.283 - 0.5) * s.sun.spread;
+    dy += Math.max(-1, Math.min(1, (sunY - a.y) / 220)) * s.sun.pull;
+  }
   const m = Math.hypot(dx, dy) || 1;
   dx /= m; dy /= m;
   // same-species spacing: cruising animals of one kind keep about a body length apart instead of stacking into one
   // shape. Only while wandering: a chase or an escape is never bent off its line by this (it is a look, not a tactic).
-  if (wander) {
+  if (ALIVE.shoal && s.school) {
+    // a school: steer toward the neighbours' centre, match their heading, keep a body length apart.
+    // While fleeing there is no pull to the centre: the school bursts and turns together.
+    const sc = s.school, r2 = sc.r * sc.r, sepR = s.size * 2.4, w = thr ? 1.2 : wander ? 1 : sc.forage;
+    let n = 0, cx = 0, cy = 0, ax = 0, ay = 0, sx = 0, sy = 0;
+    const x0 = Math.max(0, ((a.x - sc.r) / HC) | 0), x1 = Math.min(HCOLS - 1, ((a.x + sc.r) / HC) | 0);
+    const y0 = Math.max(0, ((a.y - sc.r) / HC) | 0), y1 = Math.min(HROWS - 1, ((a.y + sc.r) / HC) | 0);
+    for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) for (const o of S.hash[gy * HCOLS + gx]) {
+      if (o === a || o.dead || o.t !== a.t) continue;
+      const ex = o.x - a.x, ey = o.y - a.y, d2 = ex * ex + ey * ey;
+      if (d2 > r2) continue;
+      n++; cx += ex; cy += ey; ax += o.vx; ay += o.vy;
+      if (d2 < sepR * sepR) { const d = Math.sqrt(d2) || 1; sx -= ex / d * (1 - d / sepR); sy -= ey / d * (1 - d / sepR); }
+    }
+    if (n) {
+      if (!thr) { const cm = Math.hypot(cx, cy) || 1; dx += cx / cm * sc.coh * w; dy += cy / cm * sc.coh * w; }
+      dx += ax / n / s.speed * sc.ali * w; dy += ay / n / s.speed * sc.ali * w;
+      dx += sx * sc.sep; dy += sy * sc.sep;
+    }
+  } else if (wander) {
     const sepR = s.size * 2.4, nb = nearest(a.x, a.y, sepR, BIT[a.t], a);
     if (nb) { const ex = a.x - nb.x, ey = a.y - nb.y, d = Math.hypot(ex, ey) || 1, w = (1 - d / sepR) * 1.2; dx += ex / d * w; dy += ey / d * w; }
   }
@@ -280,6 +349,8 @@ function updMobile(a, dt) {
 
 function step(dt) {
   S.t += dt;
+  S.night = nightAt(S.t);
+  stepReef(dt); stepNutrients(dt);
   buildHash();
   const c = S.counts;
   for (const a of S.agents) {
@@ -290,7 +361,9 @@ function step(dt) {
   // away from temperate: heat stresses it hard, cold just slows it (COLD_SLOW = growth lost per unit of temp below 0.5).
   const pk = c[PLANKTON];
   const heat = S.temp > 0.5 ? Math.max(0.05, 1 - 2.4 * (S.temp - 0.5)) : 1 - COLD_SLOW * (0.5 - S.temp);
-  S.plankAcc += (0.12 * pk * Math.max(0, 1 - pk / PK_CAP) * heat + 2.5 * heat) * dt;
+  // upwelled nutrients feed it: an untouched ocean sits at 1, a fished-out one runs down toward NUT_FLOOR
+  const nut = ALIVE.nutrients ? Math.max(NUT_FLOOR, Math.min(1.25, NUT_FLOOR + (1 - NUT_FLOOR) * S.upwell / NUT_U0)) : 1;
+  S.plankAcc += (0.12 * pk * Math.max(0, 1 - pk / PK_CAP) * heat * nut + 2.5 * heat) * dt;
   while (S.plankAcc >= 1) {
     S.plankAcc -= 1;
     const k = spawnPlankton();
@@ -308,6 +381,20 @@ function step(dt) {
   S.effects = S.effects.filter(e => e.t < 0.5);
   S.hacc += dt;
   if (S.hacc >= 1) { S.hacc -= 1; sample(); }
+}
+
+// Coral health: heat bleaches the reef within tens of seconds; a reef that stays bleached dies over minutes and recovers
+// far more slowly than it died. Read by the refuge and drawn by scene.js.
+function stepReef(dt) {
+  const r = S.reef, target = smoothstep(0.56, 0.72, S.temp);
+  r.bleach += (target - r.bleach) * Math.min(1, dt / (target > r.bleach ? 25 : 120));
+  if (r.bleach > 0.75) r.dead = Math.min(1, r.dead + dt / 240); else r.dead = Math.max(0, r.dead - dt / 900);
+}
+// Nutrients: detritus settles on the seabed (NUT_SINK s), the seabed wells up again (NUT_RISE s). S.upwell is that flux.
+function stepNutrients(dt) {
+  if (dt <= 0) return;
+  const sink = S.detritus * Math.min(1, dt / NUT_SINK), rise = S.seabed * Math.min(1, dt / NUT_RISE);
+  S.detritus -= sink; S.seabed += sink - rise; S.upwell = rise / dt;
 }
 
 // Immigration from the wider ocean, only while the water is healthy (clean, not overheated) and the species' food is plentiful.

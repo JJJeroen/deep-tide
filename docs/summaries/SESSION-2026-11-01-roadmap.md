@@ -101,6 +101,26 @@ Owner authorised pushing straight to main (= GitHub Pages). Branch look-m3 fast-
 - Watch lamp + ROV removed (scene.js/render.js); the darkness layer stays (jellies, plankton, deck lights). A lamp belongs to the deep layer (M7).
 - Horizon boats: drawTrawlerTop now takes { haze, hz, hull, band }; FAR_BOATS draws two distant trawlers (red, green) at 0.3/0.24 scale, hazed.
 
+## Sixth request: "yes, go ahead with M6" — the ocean is alive (sim.js, behind ALIVE switches for tuning)
+- dvm: day/night in the sim (DAY_LEN 240, S.night). The zooplankton half of the plankton (PK_MIGRANT) migrates: mid-water by day
+  (PK_DAY 100-420), surface at night (PK_NIGHT 15-220); grazers follow their food (sun.day 320 / night 140). Hunters hunt by sight
+  (sight 0.6: vision falls with lightAt(y), less at depth and at night).
+- shoal: grazer boids (cohesion/alignment/spacing; mild while foraging). Strong schools starve the grazers (tight balls strip
+  the plankton: grazers 44 -> 26 or 5, hunters extinct), so visible shoals are NOT possible in the sim at ~40 grazers.
+  OPEN for the owner: accept mild groups, or draw each grazer as a small school (render-only, but the panel count then means schools).
+- refuge: reef corner (x<640, y>690) cuts the catch chance for schooling fish (grazers) by 65% x reef health; fleeing grazers near it
+  dive for it. Reef bleach/dead now sim state (S.reef, stepReef) so a heat-killed reef stops sheltering (scene.js draws S.reef).
+  Restricted to grazers: sheltering hunters from sharks pushed sharks over the 2% bar.
+- nutrients: carcasses (massOf = size^1.5/4) and meal scraps (40%) -> detritus -> seabed (40 s) -> upwelling (90 s) -> plankton growth
+  x [NUT_FLOOR 0.88 .. 1.25] relative to NUT_U0 (7.0, measured with nutrients off). Harvest removes biomass. A stronger floor (0.75)
+  amplified cold stress (positive feedback). Render: marine snow follows detritus, upwelling specks at the drop-off.
+- Other tuning: grazer meta 2.6 (unchanged after a detour), hunter vision 160 / meta 1.5, jelly sun.spread 150 (fixes the old jelly
+  band: depth sd 12 -> ~35) with crowd k 16 (spread alone made jellies bloom), COLD_SLOW 0.9 -> 0.7 (with DVM, cold water failed).
+- Measured (30 runs): idle PASS (hunter zero 0.9%), cold PASS (hunter 1.7%). Bots (12 runs): steward 40.6+-5.8 (ref unchanged, 41/92%),
+  measured 74.6, careful 55.5, plunder -86.8 (heavier fishing is punished harder: nutrients leave with the catch).
+- Visual honesty: the grazer migration is modest (~60 px); the plankton migration is real but tiny dots are hard to see at night.
+- Hints: night (migration), nutrients (when upwelling < 80% of normal), reefdead.
+
 ## Next
 1. Owner plays Learn + one full Anthropocene run, with sound on; note what drags or confuses and whether the sound helps or grates (still the M6 gate).
 3. Known, left for M6: hunters and grazers still get pinned at side walls sometimes (now less visible thanks to the hysteresis);

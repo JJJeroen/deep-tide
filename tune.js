@@ -33,12 +33,18 @@ const HARMS = {
 function loadSim() {
   const sim = fs.readFileSync(path.join(__dirname, 'sim.js'), 'utf8');
   // instrument: count births, arrivals, kills (patched into the source text so sim.js stays clean)
-  const patched = sim
-    .replace('S.newborns.push(k);', 'S.newborns.push(k); T.births[a.t]++;')
-    .replace('function arrive(i, n) {', 'function arrive(i, n) { T.arrivals[i] += n;')
-    .replace('function eat(pred, prey, gain) {', 'function eat(pred, prey, gain) { T.eaten[pred.t][prey.t]++;')
-    .replace('if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; return; }', 'if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; if (a.e <= 0) T.starved[a.t]++; else T.old[a.t]++; return; }');
-  if ((patched.match(/T\./g) || []).length < 5) throw new Error('instrumentation hooks not found in sim block');
+  // each hook must match exactly once, or the counts it feeds would silently read zero
+  const hooks = [
+    ['S.newborns.push(k);', 'S.newborns.push(k); T.births[a.t]++;'],
+    ['function arrive(i, n) {', 'function arrive(i, n) { T.arrivals[i] += n;'],
+    ['function eat(pred, prey, gain) {', 'function eat(pred, prey, gain) { T.eaten[pred.t][prey.t]++;'],
+    ['if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; S.detritus', 'if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; if (a.e <= 0) T.starved[a.t]++; else T.old[a.t]++; S.detritus'],
+  ];
+  let patched = sim;
+  for (const [from, to] of hooks) {
+    if (patched.split(from).length !== 2) throw new Error('instrumentation hook not found exactly once in sim.js: ' + from);
+    patched = patched.replace(from, to);
+  }
   return patched;
 }
 

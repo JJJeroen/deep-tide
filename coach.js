@@ -76,10 +76,12 @@ function hintChecks() {
   for (const s of NATIVE) if (s.recolonize && S.zero[s.i] && S.harmed[s.i])
     tip('lost' + s.i, s.name + ' are gone. If the water stays clean and cool and there is enough for them to eat, they drift back from the open ocean in ' + minutes(s.recolonize.after) + '.');
   if (g.on && g.mins.length && !g.mins[g.mins.length - 1].ok) tip('short', 'Short this minute. Each short minute lowers your quota score; three in a row bankrupt the fleet (−10, once). A species gone at the end costs 10 as well.');
-  if (REEF.bleach > 0.35) tip('bleach', 'The reef is bleaching. In water this warm, corals expel the algae that feed them and turn white. If it stays warm they starve and algae take over the skeletons; a reef recovers far slower than it dies.');
+  if (S.reef.bleach > 0.35) tip('bleach', 'The reef is bleaching. In water this warm, corals expel the algae that feed them and turn white. If it stays warm they starve and algae take over the skeletons; a reef recovers far slower than it dies.');
   if (S.t > 30 && SOUND.ac && SOUND.on && SOUND.ac.state === 'running')
     tip('sound', 'Listen: every species is one note in the chord, as loud as it is common. Lose a species and its note goes silent. Murky water muffles it, warm water makes it waver, a clashing note means invaders. The menu explains every sound.');
-  if (MOOD.n > 0.5) tip('night', 'Night. The glow is jellyfish and plankton. The animals keep going as by day: night is only a look for now.');
+  if (MOOD.n > 0.5) tip('night', 'Night. The grazers rise to feed near the surface, where hunters see less in the dark; at dawn the well-fed ones sink again. Dusk and dawn, while they pass through, are when hunters eat.');
+  if (ALIVE.nutrients && S.t > 90 && S.upwell < NUT_U0 * 0.8) tip('nutrients', 'Less is drifting down than usual. Dead animals sink, rot on the seabed and well up again as food for the plankton; what the nets take never comes back. Watch the plankton grow slower.');
+  if (ALIVE.refuge && S.reef.dead > 0.3) tip('reefdead', 'The reef is dying. Small fish hide among the coral (bottom left) from hunters; a dead reef hides nothing.');
   if (g.on && g.ballast > 0) tip('ballast', '+' + RUN.BALLAST_PAY + ' toward the quota. The lionfish that came with it will hunt your grazers for the rest of the season.');
 }
 

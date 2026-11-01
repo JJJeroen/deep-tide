@@ -6,7 +6,6 @@
 // Render only. Everything here reads S and never writes it, so the sim (and tune.js) are untouched by it.
 
 const SKY = 64;             // world px of sky above the waterline (y = 0); the sim world stays 0..WH below it
-const DAY_LEN = 240;        // sim seconds per full day and night
 const DEPTH_M = 60;         // depth ruler: the sim column is the top 60 m of a reef wall; the drop-off leads deeper
 
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -15,17 +14,12 @@ const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t
 // seeded random, so the reef, the clouds and the stars look the same on every load
 function seeded(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
-// ---- time of day: 0 = day, 1 = night. A run starts in the morning.
-function dayPhase(t) { return ((t / DAY_LEN + 0.08) % 1 + 1) % 1; }
-function nightAt(t) {
-  const p = dayPhase(t);
-  return p < 0.6 ? 0 : p < 0.7 ? smooth(0.6, 0.7, p) : p < 0.9 ? 1 : 1 - smooth(0.9, 1, p);
-}
+// ---- time of day comes from the sim (sim.js: DAY_LEN, dayPhase, nightAt, S.night): grazers migrate with it
 
 // ---- the mood of the water, shared by every layer
 const MOOD = { n: 0, warm: 0, pol: 0, cols: null };
 function updateMood(t) {
-  MOOD.n = nightAt(t);
+  MOOD.n = S.night;
   MOOD.warm = smooth(0.5, 0.8, S.temp);
   MOOD.pol = clamp01(S.avgPoll * 5);
   const { n, warm, pol } = MOOD;
@@ -78,7 +72,7 @@ for (let x = 0; x <= WW; x += 20) RIDGE.push(872 + Math.sin(x * 0.006 + 1) * 14 
 
 // coral health (render only): heat bleaches the reef, and a reef that stays bleached dies and is overgrown by algae.
 // It bleaches within tens of seconds and dies over minutes, but recovers far more slowly than either.
-const REEF = { bleach: 0, dead: 0, dull: 0, key: '' };
+const REEF = { dull: 0, key: '' }; // bleaching and death are sim state (S.reef): a dead reef stops sheltering fish
 const REEF_X = 900, REEF_Y0 = 640, REEF_H = WH - REEF_Y0;
 const reefCanvas = document.createElement('canvas'), rg = reefCanvas.getContext('2d');
 const CORAL = ['#e0786c', '#d99c4c', '#9a6bc0', '#5aa99b', '#e3bd62', '#c75c78', '#e88a5a'];
@@ -92,7 +86,7 @@ const reefItems = (() => {
 })();
 function coralCol(it) {
   // each colony has its own heat tolerance, so bleaching comes in patches instead of all at once
-  const b = smooth(it.s * 0.6, it.s * 0.6 + 0.4, REEF.bleach), d = smooth(it.s * 0.5, it.s * 0.5 + 0.5, REEF.dead);
+  const b = smooth(it.s * 0.6, it.s * 0.6 + 0.4, S.reef.bleach), d = smooth(it.s * 0.5, it.s * 0.5 + 0.5, S.reef.dead);
   let c = mixHex(it.col, '#f1ece2', b * 0.92);
   c = mixHex(c, '#6d6a4c', d * 0.85);
   c = mixHex(c, '#4c4532', REEF.dull * 0.5);
@@ -142,7 +136,7 @@ function buildReef() {
       }
     }
     // dead coral grows a fuzz of algae
-    const d = smooth(it.s * 0.5, it.s * 0.5 + 0.5, REEF.dead);
+    const d = smooth(it.s * 0.5, it.s * 0.5 + 0.5, S.reef.dead);
     if (d > 0.15) {
       rg.globalAlpha = d * 0.7; rg.fillStyle = '#56603a';
       for (let j = 0; j < 8; j++) rg.fillRect(x + (r() - 0.5) * 30 * z, y - r() * 30 * z, 2.5, 1.5);
@@ -150,19 +144,15 @@ function buildReef() {
     rg.globalAlpha = 1;
   }
 }
-function stepReef(dt) {
+function stepReefFilm(dt) { // (named apart from sim.js stepReef, which this file must not overwrite)
   if (dt <= 0) return;
-  const target = smooth(0.56, 0.72, S.temp);
-  REEF.bleach += (target - REEF.bleach) * Math.min(1, dt / (target > REEF.bleach ? 25 : 120));
-  if (REEF.bleach > 0.75) REEF.dead = Math.min(1, REEF.dead + dt / 240);
-  else REEF.dead = Math.max(0, REEF.dead - dt / 900);
   // pollution settling on the reef leaves a brown film (mean of the pollution cells over the shelf)
   let sum = 0, n = 0;
   for (let gy = Math.floor(700 / GC); gy < GROWS; gy++) for (let gx = 0; gx < Math.ceil(REEF_X / GC); gx++) { sum += S.poll[gy * GCOLS + gx]; n++; }
   const dull = clamp01(sum / n * 4);
   REEF.dull += (dull - REEF.dull) * Math.min(1, dt / 20);
 }
-function resetScene() { REEF.bleach = 0; REEF.dead = 0; REEF.dull = 0; REEF.key = ''; SHIP.leaving = false; SHIP.x = SHIP.home; SHIP.a = 0; PLUMES.length = 0; }
+function resetScene() { REEF.dull = 0; REEF.key = ''; SHIP.leaving = false; SHIP.x = SHIP.home; SHIP.a = 0; PLUMES.length = 0; }
 
 // swaying sea whips in front of the reef, drawn per frame so they move with the current
 const WHIPS = (() => { const r = seeded(19); return Array.from({ length: 16 }, () => ({ x: 20 + r() * 640, h: 26 + r() * 40, ph: r() * TAU, s: r(), col: CORAL[(r() * CORAL.length) | 0] })); })();
@@ -183,7 +173,7 @@ function drawSeabed(t) {
   for (let i = 0; i < 60; i++) i ? ctx.lineTo(i * 10, BED[i] + 1) : ctx.moveTo(0, BED[0] + 1);
   ctx.stroke();
   // corals: rebuilt only when their health visibly changed
-  const key = Math.round(REEF.bleach * 24) + '|' + Math.round(REEF.dead * 16) + '|' + Math.round(REEF.dull * 10);
+  const key = Math.round(S.reef.bleach * 24) + '|' + Math.round(S.reef.dead * 16) + '|' + Math.round(REEF.dull * 10);
   if (key !== REEF.key) { REEF.key = key; buildReef(); }
   ctx.drawImage(reefCanvas, 0, REEF_Y0, REEF_X, REEF_H);
   ctx.lineCap = 'round'; ctx.lineWidth = 1.6;
@@ -195,10 +185,20 @@ function drawSeabed(t) {
   ctx.lineCap = 'butt';
 }
 
-// ---- marine snow: organic flakes sinking from the sunlit layer; the richer the plankton, the more of it
+// ---- marine snow: the sim's detritus (carcasses and leftovers) sinking to the seabed, drawn as flakes; and at the drop-off
+// the same nutrients welling back up toward the plankton. Both follow the nutrient loop (sim.js stepNutrients).
 const SNOW = Array.from({ length: 190 }, () => ({ x: Math.random() * WW, y: Math.random() * WH, v: 5 + Math.random() * 9, s: 0.8 + Math.random() * 1.3, ph: Math.random() * TAU }));
+const UPWELL = Array.from({ length: 70 }, () => ({ x: 1080 + Math.random() * 480, y: Math.random() * WH, v: 7 + Math.random() * 8, ph: Math.random() * TAU }));
 function drawSnow(t) {
-  const n = Math.round(SNOW.length * Math.max(0.25, Math.min(1, (S.counts[PLANKTON] || 0) / 500)));
+  const det = S.detritus / (NUT_U0 * NUT_SINK), up = S.upwell / NUT_U0;
+  const nu = Math.round(UPWELL.length * Math.max(0, Math.min(1, up * 0.8)));
+  ctx.fillStyle = 'rgba(170,230,200,.32)';
+  for (let i = 0; i < nu; i++) { // rising from the deep along the slope, fading as it nears the surface
+    const u = UPWELL[i], y = WH - ((WH - u.y + t * u.v) % WH), x = u.x + Math.sin(t * 0.4 + u.ph) * 10 + (WH - y) * 0.08;
+    ctx.globalAlpha = Math.min(1, y / 300); ctx.fillRect(x, y, 1.6, 1.6);
+  }
+  ctx.globalAlpha = 1;
+  const n = Math.round(SNOW.length * Math.max(0.2, Math.min(1, det * 0.8)));
   ctx.fillStyle = 'rgba(214,228,232,.4)';
   for (let i = 0; i < n; i++) {
     const s = SNOW[i], y = (s.y + t * s.v) % WH, x = s.x + Math.sin(t * 0.3 + s.ph) * 6;

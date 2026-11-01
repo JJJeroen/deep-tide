@@ -283,7 +283,7 @@ function frame(now) {
       if (S.game.over) { paused = true; ptr.down = false; showEnd(); break; }
       stepped += dt;
     }
-    stepReef(stepped); stepFleet(stepped); // scene time follows the sim time actually stepped (capped at 8 steps)
+    stepReefFilm(stepped); stepFleet(stepped); // scene time follows the sim time actually stepped (capped at 8 steps)
     if (acc > dt) acc = 0;
   }
   ctx.fillStyle = '#02070d'; ctx.fillRect(0, 0, innerWidth, innerHeight);
