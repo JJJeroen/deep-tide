@@ -1,9 +1,9 @@
-// Headless tuning harness for Deep Tide. Runs the sim block of index.html (between SIM-START/SIM-END) in node.
+// Headless tuning harness for Deep Tide. Runs sim.js (the whole simulation, no DOM) in node.
 //   node tune.js [seconds=1800] [runs=10] [scenario] [rescue=on|off]
 //   scenarios: idle | cold | hot              (untouched ocean at warmth 0.5 / 0.2 / 0.75)
 //              pollute | trawl | invade | net (player harm at HARM_T seconds, then hands off; warmth 0.5)
 //              anthro (scored run, played by bots: see BOT_LIB below; bot=name|all)
-//   rescue=on|off overrides RESCUE_ENABLED from index.html for this run (default: whatever index.html says).
+//   rescue=on|off overrides RESCUE_ENABLED from sim.js for this run (default: whatever sim.js says).
 //   env TUNE_PATCH='SPECIES[IDX.shark].meta = 0.5'  JS evaluated in the sim context before reset, for parameter sweeps.
 //   env TUNE_JOBS=n  parallel worker threads (default: number of CPUs, max runs).
 // Reports per native species: % of time at zero, mean count, births, and rescue/recolonization arrivals,
@@ -31,9 +31,8 @@ const HARMS = {
 };
 
 function loadSim() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  let sim = html.split('// ==SIM-START==')[1].split('// ==SIM-END==')[0];
-  // instrument: count births, arrivals, kills (patched into the source text so index.html stays clean)
+  const sim = fs.readFileSync(path.join(__dirname, 'sim.js'), 'utf8');
+  // instrument: count births, arrivals, kills (patched into the source text so sim.js stays clean)
   const patched = sim
     .replace('S.newborns.push(k);', 'S.newborns.push(k); T.births[a.t]++;')
     .replace('function arrive(i, n) {', 'function arrive(i, n) { T.arrivals[i] += n;')

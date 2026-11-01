@@ -1,0 +1,193 @@
+// ---------- UI ----------
+const rowsEl = document.getElementById('rows');
+for (const sp of SPECIES) {
+  const r = document.createElement('div'); r.className = 'row'; r.id = 'row' + sp.i;
+  r.innerHTML = `<span class="dot" style="background:${sp.color}"></span><span>${sp.name}</span><span class="n">0</span>`;
+  if (sp.invasive) r.style.display = 'none';
+  rowsEl.appendChild(r);
+}
+const stockSel = document.getElementById('stockSel');
+stockSel.innerHTML = '';
+for (const sp of NATIVE) { const o = document.createElement('option'); o.value = sp.i; o.textContent = sp.name; stockSel.appendChild(o); }
+stockSel.value = GRAZER;
+const chart = document.getElementById('chart'), cc = chart.getContext('2d');
+const logEl = document.getElementById('log');
+let logShown = 0, uiTick = 0;
+
+const HINTS = {
+  watch: 'Just watch. Sit with it for a minute before you touch anything.',
+  net: 'Hold and drag to net fish. Plankton slips through.',
+  trawl: 'Click a depth. A trawler sweeps the whole width and takes everything in its path.',
+  pollute: 'Hold and paint. Pollution spreads and fades slowly.',
+  invader: 'Click to release a few invaders. Nothing here has ever met them.',
+  stock: 'Click to add the selected species. Rebuild from the bottom: plankton, then grazers, then what eats them.',
+};
+// the scored run: same tools, but now each one has a price and a payoff
+const HINTS_RUN = {
+  watch: 'The fleet needs catch every minute. Grazers pay 1, hunters 4, jellyfish half. Turtles, sharks and mantas are protected.',
+  net: 'Hold and drag to net. Picky, slow, and you choose what comes up. Protected animals in the net still die.',
+  trawl: 'Click a depth. Fast, a full hold in seconds, and everything in the band dies: bycatch, young fish, the lot.',
+  pollute: 'Hold to dump waste: a disposal contract pays ' + RUN.DUMP_PAY + ' toward the quota per second. The water remembers.',
+  invader: 'Click to let a ship skip ballast treatment: +' + RUN.BALLAST_PAY + ' toward the quota, one ship a minute. What rides in the ballast stays.',
+  stock: 'Locked in this run. Nobody is coming to restock it.',
+};
+
+let mode = null; // null (menu, ambient sandbox behind it) | 'sandbox' | 'run'
+const menuEl = document.getElementById('menu'), endEl = document.getElementById('end'), hudEl = document.getElementById('hud');
+const tempEl = document.getElementById('temp');
+const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+function newGame(m) {
+  mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
+  document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
+  document.getElementById('speed').textContent = '1×';
+  resetWorld(); logShown = 0; logEl.innerHTML = '';
+  const run = m === 'run';
+  if (run) startRun(); else S.temp = 0.5;
+  tempEl.value = Math.round(S.temp * 100); tempEl.disabled = run;
+  tempEl.parentElement.title = run ? 'The water warms on its own in this run' : '';
+  document.querySelector('[data-tool=stock]').disabled = run; stockSel.disabled = run;
+  document.querySelector('[data-tool=stock]').title = run ? 'Locked in the Anthropocene run' : '';
+  document.querySelector('[data-tool=pollute]').textContent = run ? 'Dump waste' : 'Pollute';
+  document.querySelector('[data-tool=invader]').textContent = run ? 'Skip ballast' : 'Release invader';
+  document.getElementById('tagline').textContent = run ? 'Anthropocene run' : 'A small ocean that runs without you.';
+  document.getElementById('hudDur').textContent = '/ ' + fmtClock(RUN.DUR);
+  hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true;
+  setTool('watch');
+}
+
+function updateHud() {
+  const g = S.game;
+  if (!g.on) return;
+  const t = Math.min(S.t, RUN.DUR), mins = RUN.DUR / RUN.MINUTE, m = Math.min(g.minute, mins - 1), demand = demandAt(m);
+  const haul = g.over && g.mins.length ? g.mins[g.mins.length - 1].haul : g.haul; // after 10:00, keep showing the last minute
+  document.getElementById('hudClock').textContent = fmtClock(t);
+  document.getElementById('hudMin').textContent = 'Minute ' + (m + 1) + '/' + mins;
+  document.getElementById('hudHaul').textContent = Math.floor(haul);
+  document.getElementById('hudDemand').textContent = demand;
+  const bar = document.getElementById('hudBar');
+  bar.firstElementChild.style.width = Math.min(100, haul / demand * 100) + '%';
+  bar.classList.toggle('met', haul >= demand);
+  const met = g.mins.filter(x => x.ok).length, missed = g.mins.length - met;
+  let sub = 'Met ' + met + ' · short ' + missed + (g.bycatch ? ' · protected caught ' + g.bycatch : '') + '<br>Warmth ' + Math.round(S.temp * 100) + '% and rising';
+  if (g.bankrupt) sub += '<br><span class="warn">The fleet is bankrupt.</span>';
+  else if (g.streak > 0) sub += '<br><span class="warn">' + g.streak + ' short in a row. ' + RUN.BANKRUPT_AFTER + ' and the fleet goes under.</span>';
+  document.getElementById('hudSub').innerHTML = sub;
+  tempEl.value = Math.round(S.temp * 100);
+  const wait = RUN.BALLAST_EVERY - (S.t - g.ballastAt);
+  document.querySelector('[data-tool=invader]').textContent = wait > 0 && !g.over ? 'Skip ballast (' + Math.ceil(wait) + 's)' : 'Skip ballast';
+}
+
+function showEnd() {
+  const r = S.game.result;
+  if (!r || !endEl.hidden) return;
+  const pct = v => Math.round(v * 100) + '%', list = a => a.length ? a.join(', ') : 'none';
+  const st = RUN.STEWARD;
+  document.getElementById('endCard').innerHTML = `
+    <h2>${fmtClock(RUN.DUR)}. The season is over.</h2>
+    <p class="verdict">${r.verdict}</p>
+    <div class="bigscore">${r.score}</div><p style="margin-top:0">points</p>
+    <table>
+      <tr><td>Catch delivered</td><td>${Math.round(r.delivered)} of ${r.quotaTotal} demanded · quota met ${r.met} of ${r.minutes} minutes</td></tr>
+      <tr><td>Where it came from</td><td>fish ${Math.round(r.fish)} · waste contracts ${Math.round(r.dumped)} · ballast ${Math.round(r.ballast)}</td></tr>
+      <tr><td>Biodiversity</td><td>${pct(r.bio)}</td></tr>
+      <tr><td>Water quality</td><td>${pct(r.water)}</td></tr>
+      <tr><td>Gone at the end</td><td>${list(r.lost)}</td></tr>
+      <tr><td>Lost, then came back</td><td>${list(r.recovered)}</td></tr>
+      <tr><td>Protected animals caught</td><td>${r.bycatch}</td></tr>
+    </table>
+    <h3>How the score adds up</h3>
+    <table>${r.parts.filter(p => p.pts || p.label.startsWith('Quota') || p.label.startsWith('Bio') || p.label.startsWith('Water'))
+      .map(p => `<tr><td>${p.label}</td><td class="${p.pts < 0 ? 'neg' : ''}">${p.pts > 0 ? '+' : ''}${p.pts}</td></tr>`).join('')}</table>
+    <p><b style="color:var(--text)">What would the steward have done?</b> Left the nets dry. That typically ends around
+      <b style="color:var(--text)">${st.score}</b> points: biodiversity ${pct(st.bio)}, no quota delivered, the fleet bankrupt.</p>
+    <div class="actions"><button id="again" class="on">Play again</button><button id="toSandbox">Sandbox</button></div>`;
+  endEl.hidden = false;
+  document.getElementById('again').onclick = () => newGame('run');
+  document.getElementById('toSandbox').onclick = () => newGame('sandbox');
+}
+
+function updateUI() {
+  if ((uiTick++ % 6) === 0) {
+    if (mode === 'run') updateHud();
+    document.querySelector('[data-tool=stock]').classList.toggle('pulse', S.flags.stockPulse && tool !== 'stock' && mode !== 'run');
+    for (const sp of SPECIES) {
+      const row = document.getElementById('row' + sp.i);
+      row.querySelector('.n').textContent = S.counts[sp.i];
+      row.classList.toggle('extinct', S.counts[sp.i] === 0 && S.peak[sp.i] > 0 && (sp.plant || sp.invasive || !sp.recolonize || S.harmed[sp.i] === 1));
+      if (sp.invasive) row.style.display = S.peak[sp.i] > 0 ? '' : 'none';
+    }
+    document.getElementById('bioN').textContent = Math.round(biodiversity() * 100) + '%';
+    document.getElementById('waterN').textContent = Math.round(waterQuality() * 100) + '%';
+    drawChart();
+  }
+  while (logShown < S.events.length) {
+    const e = S.events[logShown++], d = document.createElement('div');
+    d.textContent = e.msg; d.className = e.kind; logEl.appendChild(d);
+    while (logEl.children.length > 5) logEl.removeChild(logEl.firstChild);
+    setTimeout(() => { d.style.opacity = 0; setTimeout(() => d.remove(), 1600); }, 11000);
+  }
+}
+
+function drawChart() {
+  const W = chart.width, H = chart.height;
+  cc.clearRect(0, 0, W, H);
+  const h = S.hist; if (h.length < 2) return;
+  for (let t = 0; t < N; t++) {
+    if (SPECIES[t].invasive && S.peak[t] === 0) continue;
+    const mx = Math.max(1, S.peak[t]);
+    cc.strokeStyle = COL[t]; cc.lineWidth = 2; cc.beginPath();
+    h.forEach((s, i) => { const x = i / 299 * W + (W - h.length / 299 * W), y = H - 4 - (s[t] / mx) * (H - 8); i ? cc.lineTo(x, y) : cc.moveTo(x, y); });
+    cc.stroke();
+  }
+}
+
+function setTool(t) {
+  if (t === 'stock' && mode === 'run') return; // locked in the scored run
+  tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  document.getElementById('hint').textContent = (mode === 'run' ? HINTS_RUN : HINTS)[t];
+}
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+document.getElementById('stockSel').addEventListener('change', () => setTool('stock'));
+tempEl.addEventListener('input', e => { if (mode !== 'run') S.temp = e.target.value / 100; });
+document.getElementById('pause').addEventListener('click', e => { if (S.game.over) return; paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
+document.getElementById('speed').addEventListener('click', e => { speedMul = speedMul === 1 ? 2 : speedMul === 2 ? 4 : speedMul === 4 ? 0.5 : 1; e.target.textContent = speedMul + '×'; });
+document.getElementById('reset').addEventListener('click', () => newGame(mode || 'sandbox')); // in the run: start the run over
+let pausedBeforeMenu = false;
+document.getElementById('menuBtn').addEventListener('click', () => {
+  if (!menuEl.hidden) return;
+  pausedBeforeMenu = paused; paused = true; ptr.down = false; // the run holds still while the menu is up
+  endEl.hidden = true; menuEl.hidden = false; document.getElementById('menuBack').hidden = !mode;
+});
+document.querySelector('#menuBack button').addEventListener('click', () => {
+  menuEl.hidden = true;
+  if (S.game.over) endEl.hidden = false; else paused = pausedBeforeMenu;
+});
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => newGame(b.dataset.mode)));
+
+view.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !e.isPrimary) return;
+  const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true;
+  view.setPointerCapture(e.pointerId);
+  if (tool === 'trawl') startTrawl(p.y);
+  else if (tool === 'invader') {
+    if (!releaseInvaders(p.x, p.y)) log('No ship in port yet. The next one is in ' + Math.ceil(RUN.BALLAST_EVERY - (S.t - S.game.ballastAt)) + ' s.');
+    else if (mode === 'run') log('A ship flushed its ballast untreated: +' + RUN.BALLAST_PAY + ' toward the quota. Something that doesn\'t belong here came with it.', 'warn');
+    else log('Something that doesn\'t belong here has been released.', 'warn');
+  }
+  else if (tool === 'stock') { S.flags.stockPulse = false; const t = +document.getElementById('stockSel').value; spawnMany(t, p.x, p.y, SPECIES[t].stock); }
+});
+view.addEventListener('pointermove', e => { const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.inside = true; });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; });
+view.addEventListener('contextmenu', e => e.preventDefault());
+view.addEventListener('pointerleave', () => { ptr.inside = false; });
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^(SELECT|INPUT)$/.test(e.target.tagName) || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
+  if (!menuEl.hidden || !endEl.hidden) return; // the mode picker / end screen is up
+  const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock' }[e.key.toLowerCase()];
+  if (k) setTool(k); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
+});
+
+resetWorld(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen
