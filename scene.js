@@ -385,7 +385,8 @@ function drawTrawlerDecks(t) {
     // the warps above the waterline, from the gantry block down (render.js draws the same curves under water)
     ctx.save(); ctx.beginPath(); ctx.rect(0, -SKY, WW, SKY); ctx.clip();
     ctx.strokeStyle = 'rgba(16,24,30,.85)'; ctx.lineWidth = 1.6;
-    for (const y of [tr.y - tr.band, tr.y + tr.band]) { ctx.beginPath(); ctx.moveTo(bx + WARP_FROM.x, WARP_FROM.y); ctx.quadraticCurveTo(bx + WARP_FROM.x, y * 0.55, tr.x + 5, y); ctx.stroke(); }
+    const ns = netShape(tr); // render.js: the net lifts over a protected area
+    for (const y of [ns.cy - ns.band, ns.cy + ns.band]) { ctx.beginPath(); ctx.moveTo(bx + WARP_FROM.x, WARP_FROM.y); ctx.quadraticCurveTo(bx + WARP_FROM.x, y * 0.55, tr.x + 5, y); ctx.stroke(); }
     ctx.restore();
     ctx.save(); ctx.translate(bx, by); ctx.rotate(Math.sin(t * 0.9 + tr.y) * 0.02);
     drawTrawlerTop(ctx, t, n, tr.speed > 0);

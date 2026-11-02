@@ -202,7 +202,7 @@ const SILT = [];
 function stepSilt(dt) {
   for (const tr of S.trawlers) {
     const mx = tr.x, by = mx > 0 && mx < WW ? bedAt(mx) : 1e9;
-    if (tr.y + tr.band > by) for (let k = 0; k < 2; k++) SILT.push({ x: mx - Math.random() * 30, y: by - Math.random() * 6, vx: (Math.random() - 0.7) * 10, vy: -4 - Math.random() * 8, r: 6 + Math.random() * 8, t: 0, life: 4 + Math.random() * 4 });
+    if (tr.y + tr.band > by && !inMpa(mx)) for (let k = 0; k < 2; k++) SILT.push({ x: mx - Math.random() * 30, y: by - Math.random() * 6, vx: (Math.random() - 0.7) * 10, vy: -4 - Math.random() * 8, r: 6 + Math.random() * 8, t: 0, life: 4 + Math.random() * 4 });
   }
   for (const p of SILT) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy *= 1 - 0.4 * dt; p.r += 5 * dt; }
   while (SILT.length && SILT[0].t > SILT[0].life) SILT.shift();
@@ -228,9 +228,21 @@ function ghostShape(gn) {
   return sh;
 }
 function drawGhosts(t) {
-  for (const gn of S.ghosts) {
-    const sh = ghostShape(gn), fray = Math.max(0, 1 - gn.age / GHOST.life), a = 0.25 + 0.5 * fray, W = GHOST.w, H = GHOST.h;
-    ctx.save(); ctx.translate(gn.x, gn.y);
+  for (const gn of S.ghosts) drawGhost(gn, t, gn.x, gn.y);
+  // hauled-up nets rise on a line to the surface and are gone
+  for (const h of HAULED) {
+    const p = Math.min(1, h.t / 1.6), y = h.gn.y * (1 - p * p * (3 - 2 * p));
+    ctx.strokeStyle = `rgba(230,240,245,${0.4 * (1 - p)})`; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(h.gn.x, y - GHOST.h * 0.7); ctx.lineTo(h.gn.x, 0); ctx.stroke();
+    ctx.globalAlpha = 1 - p * p; drawGhost(h.gn, t, h.gn.x, y, 0.55); ctx.globalAlpha = 1;
+  }
+}
+const HAULED = []; // { gn, t }: nets the player hauled up (ui.js haulGhost), drawn rising for 1.6 s
+function stepHauled(dt) { for (const h of HAULED) h.t += dt; while (HAULED.length && HAULED[0].t > 1.6) HAULED.shift(); }
+function drawGhost(gn, t, gx, gy, squeeze = 1) {
+  {
+    const sh = ghostShape(gn), fray = Math.max(0, 1 - gn.age / GHOST.life), a = 0.25 + 0.5 * fray, W = GHOST.w * (0.6 + 0.4 * squeeze), H = GHOST.h * squeeze;
+    ctx.save(); ctx.translate(gx, gy);
     const pt = (p, i) => ({ x: Math.cos(p.a) * W * p.k + Math.sin(t * 0.7 + i) * 2.5, y: Math.sin(p.a) * H * p.k + Math.cos(t * 0.6 + i * 1.3) * 2 });
     const rim = sh.rim.map(pt);
     ctx.beginPath(); rim.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
@@ -255,21 +267,71 @@ function drawGhosts(t) {
   }
 }
 
+// ---------- protected area (sim.js S.mpa): a faint strip from the surface to the floor, its edges marked by lines of
+// light, and yellow marker buoys at the surface (drawMpaBuoys, after the sky). The Protected-area tool previews its strip.
+function mpaPreview() {
+  if (tool !== 'reserve' || !ptr.inside || ptr.y > WH) return null;
+  return ptr.mpa ? mpaRange(ptr.mpa.x0, ptr.mpa.x1) : mpaRange(ptr.x, ptr.x);
+}
+function drawMpaStrip(m, a, t) {
+  const g = ctx.createLinearGradient(0, 0, 0, WH);
+  g.addColorStop(0, `rgba(120,230,210,${0.08 * a})`); g.addColorStop(1, `rgba(120,230,210,${0.02 * a})`);
+  ctx.fillStyle = g; ctx.fillRect(m.x0, 0, m.x1 - m.x0, WH);
+  ctx.strokeStyle = `rgba(150,240,220,${0.35 * a})`; ctx.lineWidth = 1.5; ctx.setLineDash([3, 9]); ctx.lineDashOffset = -t * 6;
+  for (const x of [m.x0, m.x1]) { if (x <= 0 || x >= WW) continue; ctx.beginPath(); ctx.moveTo(x, 6); ctx.lineTo(x, Math.min(WH, bedAt(x))); ctx.stroke(); }
+  ctx.setLineDash([]); ctx.lineDashOffset = 0;
+}
+function drawMpa(t) {
+  if (S.mpa) drawMpaStrip(S.mpa, 1, t);
+  const pv = mpaPreview();
+  if (pv && !(S.mpa && !ptr.mpa && inMpa(ptr.x))) drawMpaStrip(pv, ptr.mpa ? 1.4 : 0.6, t);
+}
+function drawMpaBuoys(t) {
+  const m = S.mpa; if (!m) return;
+  const fs = Math.max(13, 11 / scale);
+  for (const x of [m.x0, m.x1]) {
+    const bx = Math.max(14, Math.min(WW - 14, x)), by = surfY(bx, t), tilt = Math.sin(t * 1.3 + bx) * 0.08;
+    ctx.save(); ctx.translate(bx, by); ctx.rotate(tilt);
+    ctx.fillStyle = '#e8c547'; ctx.fillRect(-3, -26, 6, 30); // spar
+    ctx.fillStyle = '#d9b02e'; ctx.beginPath(); ctx.ellipse(0, 2, 9, 5, 0, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-6, -36); ctx.lineTo(6, -26); ctx.moveTo(6, -36); ctx.lineTo(-6, -26); ctx.stroke(); // the yellow X of a special mark
+    ctx.restore();
+  }
+  ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'left'; // at the edge: the log is centred above the water
+  ctx.fillStyle = 'rgba(170,245,228,.8)'; ctx.fillText('PROTECTED', m.x0 + 14, 30);
+}
+
 // The trawler: a hull at the surface (seen from below), warps down to the otter boards that hold the net mouth open,
 // and a cone net whose codend swells with what it takes. The net mouth is exactly the band the sim sweeps (tr.x, tr.y +- band).
+// over a protected area the skipper hauls the net up to just under the hull (the sim takes nothing there). It rises over the
+// first 50 px inside the strip and is back down at its far edge, so the drawn net is never raised where the sim still fishes.
+function netShape(tr) {
+  const m = S.mpa, lift = m ? smoothstep(m.x0, m.x0 + 50, tr.x) * (1 - smoothstep(m.x1 - 50, m.x1, tr.x)) : 0;
+  const band = tr.band * (1 - 0.7 * lift);
+  return { cy: tr.y + (band + 30 - tr.y) * lift, band };
+}
 function drawTrawlers(t) {
   for (const tr of S.trawlers.concat(SAILING)) {
-    const mouth = tr.x, bx = tr.x + 230, len = 250, top = tr.y - tr.band, bot = tr.y + tr.band, cy = tr.y;
+    const ns = netShape(tr), mouth = tr.x, bx = tr.x + 230, len = 250, cy = ns.cy, top = cy - ns.band, bot = cy + ns.band;
     // warps
     ctx.strokeStyle = 'rgba(16,24,30,.85)'; ctx.lineWidth = 1.6;
     for (const y of [top, bot]) { ctx.beginPath(); ctx.moveTo(bx + WARP_FROM.x, WARP_FROM.y); ctx.quadraticCurveTo(bx + WARP_FROM.x, y * 0.55, mouth + 5, y); ctx.stroke(); } // from the gantry block
     // net: hoops narrowing toward the codend, and the long lines between them
     const ex = mouth - len, fill = Math.min(1, (tr.catch || 0) / 40), cr = 10 + fill * 28;
     ctx.strokeStyle = 'rgba(225,232,236,.42)'; ctx.lineWidth = 1;
-    for (let j = 0; j <= 6; j++) { const f = j / 6, x = mouth - f * len, r = tr.band * (1 - f * 0.86); ctx.beginPath(); ctx.ellipse(x, cy, 3 + 9 * (1 - f), r, 0, 0, 6.283); ctx.stroke(); }
+    for (let j = 0; j <= 6; j++) { const f = j / 6, x = mouth - f * len, r = ns.band * (1 - f * 0.86); ctx.beginPath(); ctx.ellipse(x, cy, 3 + 9 * (1 - f), r, 0, 0, 6.283); ctx.stroke(); }
     for (let j = -4; j <= 4; j++) {
-      ctx.beginPath(); ctx.moveTo(mouth, cy + j * tr.band / 4);
-      ctx.quadraticCurveTo(mouth - len * 0.5, cy + j * tr.band / 4 * 0.5 + Math.sin(t * 3 + j) * 2, ex, cy + j * 2.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mouth, cy + j * ns.band / 4);
+      ctx.quadraticCurveTo(mouth - len * 0.5, cy + j * ns.band / 4 * 0.5 + Math.sin(t * 3 + j) * 2, ex, cy + j * 2.5); ctx.stroke();
+    }
+    // excluder: a slanted grid of bars across the net, with the escape opening above it
+    if (tr.excl) {
+      const gx = mouth - len * 0.45, r = ns.band * (1 - 0.45 * 0.86);
+      ctx.strokeStyle = 'rgba(232,200,96,.8)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(gx + r * 0.35, cy - r); ctx.lineTo(gx - r * 0.35, cy + r); ctx.stroke();
+      ctx.lineWidth = 1;
+      for (let k = -3; k <= 3; k++) { const f = k / 4; ctx.beginPath(); ctx.moveTo(gx - f * r * 0.35 - 8, cy + f * r); ctx.lineTo(gx - f * r * 0.35 + 8, cy + f * r); ctx.stroke(); }
+      ctx.strokeStyle = 'rgba(232,200,96,.45)'; ctx.beginPath(); ctx.ellipse(gx + r * 0.3, cy - r * 0.95, 12, 4, 0, 0, 6.283); ctx.stroke();
     }
     // otter boards
     ctx.fillStyle = '#1b1915'; for (const y of [top, bot]) ctx.fillRect(mouth - 4, y - 10, 10, 20);
@@ -289,6 +351,7 @@ function drawTrawlers(t) {
       ctx.fillStyle = tr.company ? 'rgba(200,210,218,.95)' : 'rgba(240,214,140,.95)';
       ctx.fillText(tr.company ? 'Head office' : '+' + Math.round((tr.value || 0) * 2) / 2, ex - cr * 0.6, cy - cr - 8);
       if (tr.prot) { ctx.fillStyle = 'rgba(255,107,138,.95)'; ctx.fillText(tr.prot + ' protected', ex - cr * 0.6, cy - cr - 8 - fs * 1.15); }
+      if (tr.escProt) { ctx.fillStyle = 'rgba(232,200,96,.95)'; ctx.fillText(tr.escProt + ' let out', ex - cr * 0.6, cy - cr - 8 - fs * 1.15 * (tr.prot ? 2 : 1)); }
       ctx.textAlign = 'left';
     }
   }
@@ -307,7 +370,7 @@ function pickAnimal(x, y, r) {
   return best;
 }
 function drawInspect(now) {
-  if (tool === 'watch' && ptr.inside && ptr.mouse && !drag.on) { const a = pickAnimal(ptr.x, ptr.y, 36) || pickDeep(ptr.x, ptr.y, 36); inspect = a ? { a, until: now + 250 } : (inspect && now < inspect.until ? inspect : null); }
+  if (tool === 'watch' && ptr.inside && ptr.mouse && !drag.on && !ghostAt(ptr.x, ptr.y, 10)) { const a = pickAnimal(ptr.x, ptr.y, 36) || pickDeep(ptr.x, ptr.y, 36); inspect = a ? { a, until: now + 250 } : (inspect && now < inspect.until ? inspect : null); }
   if (!inspect) return;
   const a = inspect.a;
   const whale = a.pt !== undefined, deepOne = whale || a.k !== undefined; // the whale (only it has a phase timer `pt`), or an animal of the deep
@@ -351,6 +414,15 @@ function drawDeepInspect(a) {
 function drawCursor() {
   if (!ptr.inside || (tool !== 'watch' && ptr.y > WH)) return; // the tools only reach the sunlit water
   ctx.lineWidth = 1.5;
+  if (tool === 'watch' && ptr.mouse && !drag.on) {
+    const gn = ghostAt(ptr.x, ptr.y, 10);
+    if (gn) {
+      ctx.strokeStyle = 'rgba(234,247,255,.8)'; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.ellipse(gn.x, gn.y, GHOST.w + 10, GHOST.h + 10, 0, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+      const fs = Math.max(14, 12 / scale);
+      ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(234,247,255,.95)';
+      ctx.fillText('Lost net · click to haul it up', gn.x, gn.y - GHOST.h - 18); ctx.textAlign = 'left';
+    }
+  }
   if (tool === 'net') { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 50, 0, 6.283); ctx.stroke(); }
   else if (tool === 'pollute') { ctx.strokeStyle = 'rgba(190,130,50,.8)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 80, 0, 6.283); ctx.stroke(); }
   else if (tool === 'trawl') { ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.moveTo(0, ptr.y - 90); ctx.lineTo(WW, ptr.y - 90); ctx.moveTo(0, ptr.y + 90); ctx.lineTo(WW, ptr.y + 90); ctx.stroke(); ctx.setLineDash([]); }
@@ -367,7 +439,7 @@ function frame(now) {
   if (ptr.cx !== undefined) { const p = toWorld({ clientX: ptr.cx, clientY: ptr.cy }); ptr.x = p.x; ptr.y = p.y; } // the world moved under a still pointer
   stepLamp(real);
   if (!paused) {
-    stepCatch(real * speedMul); stepSailing(real * speedMul); stepSilt(real * speedMul);
+    stepCatch(real * speedMul); stepSailing(real * speedMul); stepSilt(real * speedMul); stepHauled(real * speedMul);
     acc += real * speedMul;
     let n = 0, stepped = 0;
     while (acc >= dt && n++ < 8) {
@@ -389,14 +461,14 @@ function frame(now) {
   collectCatch();
   updateMood(S.t);
   // under water, back to front; then the darkness and what glows through it; then the sky and the fleet on top
-  drawWater(); drawDeepWater(S.t); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t);
+  drawWater(); drawDeepWater(S.t); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t); drawMpa(S.t);
   for (const a of S.agents) drawAgent(a, S.t);
   drawGhosts(S.t);
   drawDeep(S.t);
   drawSnow(S.t); drawDeepSnow(S.t); drawSilt(); drawTrawlers(S.t);
   drawDark(sceneLights()); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
   drawEffects(); drawLifts(S.t);
-  drawSky(S.t); drawTrawlerDecks(S.t);
+  drawSky(S.t); drawTrawlerDecks(S.t); drawMpaBuoys(S.t);
   drawTags(); // after the sky: value tags can reach above the waterline
   drawRuler(); drawCursor();
   ctx.restore();

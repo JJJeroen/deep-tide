@@ -78,6 +78,34 @@ async function desktop(b) {
   // released well above the trawl band (y 400): the trawler still sweeping there would net them within 300 ms
   await p.keyboard.press('i'); const iv = await toPage(p, 1200, 150); await p.mouse.click(iv.x, iv.y); await wait(p, 300);
   check('invader tool releases invaders', await count(p, () => S.counts[INVADER] > 0));
+  // M8.4: protected area (drag), excluder (toggle), hauling up a lost net (Watch click)
+  await p.keyboard.press('a'); const m0 = await toPage(p, 900, 300), m1 = await toPage(p, 1250, 300);
+  await p.mouse.move(m0.x, m0.y); await p.mouse.down(); await p.mouse.move(m1.x, m1.y, { steps: 8 }); await p.mouse.up(); await wait(p, 100);
+  check('protected area: a drag marks the strip', await count(p, () => S.mpa && S.mpa.x0 === 900 && S.mpa.x1 === 1250), JSON.stringify(await count(p, () => S.mpa)));
+  check('protected area: nets and trawls take nothing inside it', await count(p, () => {
+    // record everything the gear takes (harvest is a global function declaration, so the wrapper is what stepTools calls)
+    S.trawlers.length = 0; spawnMany(GRAZER, 1075, 450, 10);
+    const taken = [], real = harvest; harvest = (a, c) => { taken.push(a.x); return real(a, c); };
+    const netted = netAt(1075, 450, 50); startTrawl(450); for (let i = 0; i < 30 * 6; i++) step(1 / 30);
+    harvest = real;
+    return netted === 0 && taken.length > 0 && taken.every(x => !inMpa(x)); // the trawl fished either side of the strip, never in it
+  }));
+  const mc = await toPage(p, 1075, 600); await p.mouse.click(mc.x, mc.y); await wait(p, 100);
+  check('protected area: a click inside lifts it', await count(p, () => S.mpa === null));
+  await p.keyboard.press('e');
+  check('excluder: E switches it on', await count(p, () => EXCLUDER.on && document.getElementById('exclBtn').getAttribute('aria-pressed') === 'true'));
+  check('excluder: most protected animals in the band get out', await count(p, () => {
+    S.trawlers.length = 0; for (const a of S.agents) if (a.t === IDX.turtle) a.dead = true; S.agents = S.agents.filter(a => !a.dead); countAll();
+    spawnMany(IDX.turtle, 800, 450, 12); const turtles = S.agents.filter(a => a.t === IDX.turtle);
+    for (const a of turtles) { a.y = 450; a.x = 300 + Math.random() * 1000; }
+    startTrawl(450); const tr = S.trawlers[0]; for (let i = 0; i < 30 * 6; i++) step(1 / 30);
+    return tr.excl && turtles.filter(a => !a.dead).length >= 7;
+  }), await count(p, () => S.agents.filter(a => a.t === IDX.turtle).length + ' turtles alive'));
+  await p.keyboard.press('e');
+  await p.keyboard.press('w'); await p.evaluate(() => { S.ghosts.length = 0; loseNet(1300, 200); S.ghosts[0].vx = 0; });
+  const gp = await count(p, () => ({ x: ox + S.ghosts[0].x * scale, y: oy + S.ghosts[0].y * scale }));
+  await p.mouse.click(gp.x, gp.y); await wait(p, 300);
+  check('ghost net: a Watch click hauls it up', await count(p, () => S.ghosts.length === 0 && HAULED.length === 1));
   await shot(p, '1-sandbox-tools');
 
   // the deep: the depth button dives, End reaches the floor, Home comes back up

@@ -20,6 +20,7 @@ const HINTS = {
   pollute: 'Hold and paint. Pollution spreads and fades slowly.',
   invader: 'Click to release a few invaders. Nothing here has ever met them.',
   stock: 'Click to add the selected species. Rebuild from the bottom: plankton, then grazers, then what eats them.',
+  reserve: 'Drag across the water to close a strip to all fishing (one at a time). Click inside it to lift it again.',
 };
 // the scored run: same tools, but now each one has a price and a payoff
 const HINTS_RUN = {
@@ -29,6 +30,7 @@ const HINTS_RUN = {
   pollute: 'Hold to dump waste: a disposal contract pays ' + RUN.DUMP_PAY + ' toward the quota per second. The water remembers.',
   invader: 'Click to let a ship skip ballast treatment: +' + RUN.BALLAST_PAY + ' toward the quota, one ship a minute. What rides in the ballast stays.',
   stock: 'Locked in this run. Nobody is coming to restock it.',
+  reserve: 'Drag across the water to close a strip to all fishing. It costs nothing but the fish inside it; what grows up there spills over.',
 };
 
 let mode = null; // null (menu, ambient sandbox behind it) | 'learn' | 'sandbox' | 'run' ('learn' is the sandbox with coach.js steps)
@@ -53,6 +55,7 @@ function newGame(m) {
   document.querySelector('[data-tool=invader]').textContent = run ? 'Skip ballast' : 'Release invader';
   document.getElementById('tagline').textContent = run ? 'Anthropocene run' : m === 'learn' ? 'Learn to play' : 'A small ocean that runs without you.';
   document.getElementById('hudDur').textContent = '/ ' + fmtClock(RUN.DUR);
+  HAULED.length = 0; ptr.mpa = null; ptr.ghost = null;
   hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true;
   setTool('watch');
   coachReset(m);
@@ -107,7 +110,8 @@ function showEnd() {
       <tr><td>Gone at the end</td><td>${lost}</td></tr>
       <tr><td>Lost, then came back</td><td>${list(r.recovered)}</td></tr>
       <tr><td>Protected animals caught</td><td>${r.bycatch}</td></tr>
-      ${r.ghostKills ? `<tr><td>Lost nets</td><td>killed ${r.ghostKills} animal${r.ghostKills > 1 ? 's' : ''}, ${r.ghostProt} of them protected, after the trawl was gone</td></tr>` : ''}
+      ${r.ghostKills || r.ghostsHauled ? `<tr><td>Lost nets</td><td>${r.ghostKills ? `killed ${r.ghostKills} animal${r.ghostKills > 1 ? 's' : ''}, ${r.ghostProt} of them protected, after the trawl was gone` : 'killed nothing'}${r.ghostsHauled ? ` · you hauled up ${r.ghostsHauled}` : ''}</td></tr>` : ''}
+      ${r.mpa ? `<tr><td>Protected area</td><td>a strip closed to fishing at the end</td></tr>` : ''}
       ${r.companyTrips ? `<tr><td>Head office's trawlers</td><td>${r.companyTrips} trip${r.companyTrips > 1 ? 's' : ''} after short minutes · took ${Math.round(r.company)} in fish · killed ${r.companyProt} protected (not on your score; the ocean paid)</td></tr>` : ''}
     </table>
     <h3>How the score adds up</h3>
@@ -169,6 +173,10 @@ function drawSparks() {
   }
 }
 
+function setExcluder(on) {
+  EXCLUDER.on = on;
+  const b = document.getElementById('exclBtn'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+}
 function setTool(t) {
   if (t === 'stock' && mode === 'run') return; // locked in the scored run
   tool = t;
@@ -177,6 +185,7 @@ function setTool(t) {
 }
 document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 document.getElementById('stockSel').addEventListener('change', () => setTool('stock'));
+document.getElementById('exclBtn').addEventListener('click', () => { setExcluder(!EXCLUDER.on); if (EXCLUDER.on && tool !== 'trawl') setTool('trawl'); });
 tempEl.addEventListener('input', e => { if (mode !== 'run') S.temp = e.target.value / 100; });
 document.getElementById('pause').addEventListener('click', e => { if (S.game.over) return; paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
 document.getElementById('speed').addEventListener('click', e => { speedMul = speedMul === 1 ? 2 : speedMul === 2 ? 4 : speedMul === 4 ? 0.5 : 1; e.target.textContent = speedMul + '×'; });
@@ -209,7 +218,15 @@ view.addEventListener('pointerdown', e => {
     if (!S.flags.deepTools) { S.flags.deepTools = true; log('Your tools only reach the sunlit water. The deep is for watching.'); }
     return;
   }
-  if (tool === 'watch') { const r = e.pointerType === 'mouse' ? 36 : 60, a = pickAnimal(p.x, p.y, r) || pickDeep(p.x, p.y, r); inspect = a ? { a, until: performance.now() + 4000 } : null; }
+  ptr.ghost = null; ptr.mpa = null; ptr.id = e.pointerId;
+  if (tool === 'watch') {
+    // a lost net under the pointer is hauled up on release (unless this turns into a scroll); otherwise pick an animal
+    const gn = ghostAt(p.x, p.y, e.pointerType === 'mouse' ? 10 : 26);
+    if (gn) { ptr.ghost = gn; inspect = null; }
+    else { const r = e.pointerType === 'mouse' ? 36 : 60, a = pickAnimal(p.x, p.y, r) || pickDeep(p.x, p.y, r); inspect = a ? { a, until: performance.now() + 4000 } : null; }
+  }
+  else if (tool === 'reserve') ptr.mpa = { x0: p.x, x1: p.x };
+  else if (tool === 'net' && inMpa(p.x) && !S.flags.mpaNet) { S.flags.mpaNet = true; log('Nothing can be taken inside the protected area.'); }
   else if (tool === 'trawl') startTrawl(p.y);
   else if (tool === 'invader') {
     if (!releaseInvaders(p.x, p.y)) log('No ship in port yet. The next one is in ' + Math.ceil(RUN.BALLAST_EVERY - (S.t - S.game.ballastAt)) + ' s.');
@@ -223,6 +240,7 @@ view.addEventListener('pointerdown', e => {
 });
 view.addEventListener('pointermove', e => {
   const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.cx = e.clientX; ptr.cy = e.clientY; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
+  if (ptr.down && ptr.mpa) ptr.mpa.x1 = p.x;
   // dragging with Watch scrolls the column (a tap still picks an animal)
   if (ptr.down && tool === 'watch' && (drag.on || Math.abs(e.clientY - drag.sy) > 8)) {
     drag.on = true; inspect = null;
@@ -230,15 +248,38 @@ view.addEventListener('pointermove', e => {
   }
 });
 view.addEventListener('wheel', e => { e.preventDefault(); cam.target = clampCam(cam.target + e.deltaY * (e.deltaMode === 1 ? 40 : 1) / scale); }, { passive: false });
-for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; drag.on = false; });
+view.addEventListener('pointerup', e => {
+  if (ptr.down && !drag.on && e.pointerId === ptr.id) { // only the finger that started it ends it
+    if (ptr.ghost && S.ghosts.includes(ptr.ghost)) haulGhost(ptr.ghost);
+    if (ptr.mpa) placeMpa(ptr.mpa, (e.pointerType === 'mouse' ? 12 : 24) / scale); // slop in screen px
+  }
+  ptr.ghost = null; ptr.mpa = null;
+});
+// pointerup comes first, so these only end the gesture
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; drag.on = false; ptr.ghost = null; ptr.mpa = null; });
+// a click inside the protected area lifts it; a click elsewhere marks the narrowest strip there; a drag marks what it covered
+function placeMpa(m, slop) {
+  const click = Math.abs(m.x1 - m.x0) < slop;
+  if (click && inMpa(m.x0)) { setMpa(null); log('The protected area is open to fishing again.'); return; }
+  const had = !!S.mpa, r = click ? setMpa(m.x0, m.x0) : setMpa(m.x0, m.x1);
+  log((had ? 'The protected area moved' : 'A strip of ocean is closed to fishing') + ': ' + Math.round((r.x1 - r.x0) / WW * 100) + '% of the water.', 'good');
+}
+// hauling up a lost net: it rises to the surface with whatever it caught, and fishes no more
+function haulGhost(gn) {
+  if (!retrieveGhost(gn)) return;
+  HAULED.push({ gn, t: 0 });
+  soundSplash(gn.x);
+  log('You hauled up a lost net' + (gn.kills ? ' with ' + gn.kills + ' dead animal' + (gn.kills > 1 ? 's' : '') + ' in it.' : ' before it caught anything.'), 'good');
+}
 view.addEventListener('contextmenu', e => e.preventDefault());
 view.addEventListener('pointerleave', () => { ptr.inside = false; });
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^(SELECT|INPUT)$/.test(e.target.tagName) || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
   if (!menuEl.hidden || !endEl.hidden) return; // the mode picker / end screen is up
-  const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock' }[e.key.toLowerCase()];
-  if (k) setTool(k); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
+  const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock', a: 'reserve' }[e.key.toLowerCase()];
+  if (k) setTool(k);
+  else if (e.key.toLowerCase() === 'e' && !e.repeat) document.getElementById('exclBtn').click(); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
   else if (e.key.toLowerCase() === 'h') setHints(!hintsOn);
   else if (e.key.toLowerCase() === 'm' && !e.repeat) setSound(!SOUND.on, true);
   else if (CAM_KEYS[e.key] !== undefined) { e.preventDefault(); cam.target = clampCam(CAM_KEYS[e.key] === 'top' ? -SKY : CAM_KEYS[e.key] === 'bottom' ? camMax() : cam.target + CAM_KEYS[e.key] * innerHeight / scale); }

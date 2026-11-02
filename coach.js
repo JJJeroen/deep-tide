@@ -47,9 +47,10 @@ const LEARN = [
     after: () => 'Those are lionfish. They hunt grazers and jellyfish, and nothing here eats them. Lost species also take much longer to return while they are around. Point at one to see it.' },
 ];
 function trawlSummary(tr) {
-  if (!tr || !tr.catch) return 'That pass came up empty.';
+  const out = tr && tr.escProt ? ' The excluder let ' + tr.escProt + ' protected animal' + (tr.escProt === 1 ? '' : 's') + ' out.' : '';
+  if (!tr || !tr.catch) return 'That pass came up empty.' + out;
   const parts = Object.keys(tr.bySp || {}).map(Number).sort((a, b) => tr.bySp[b] - tr.bySp[a]).map(sp => countOf(tr.bySp[sp], sp));
-  return 'That pass took ' + tr.catch + ' animal' + (tr.catch === 1 ? '' : 's') + ': ' + parts.join(', ') + '.';
+  return 'That pass took ' + tr.catch + ' animal' + (tr.catch === 1 ? '' : 's') + ': ' + parts.join(', ') + '.' + out;
 }
 
 // ---------- hints: one-off tips, consequences first
@@ -84,7 +85,8 @@ function hintChecks() {
   if (MOOD.n > 0.5) tip('night', 'Night. The grazers rise to feed near the surface, where hunters see less in the dark; at dawn the well-fed ones sink again. Dusk and dawn, while they pass through, are when hunters eat.');
   if (ALIVE.nutrients && S.t > 90 && S.upwell < NUT_U0 * 0.8) tip('nutrients', 'Less is drifting down than usual. Dead animals sink, rot on the seabed and well up again as food for the plankton; what the nets take never comes back. Watch the plankton grow slower.');
   if (ALIVE.refuge && S.reef.dead > 0.3) tip('reefdead', 'The reef is dying. Small fish hide among the coral (bottom left) from hunters; a dead reef hides nothing.');
-  if (S.ghosts.some(gn => gn.kills > 0)) tip('ghost', 'A lost net is still fishing. Nobody will haul it up: what swims into it, mostly the big slow animals, just dies there. It frays apart in a few minutes. Real ghost nets drift for years.');
+  if (S.ghosts.some(gn => gn.kills > 0)) tip('ghost', 'A lost net is still fishing: what swims into it, mostly the big slow animals, just dies there. Pick Watch and click (or tap) the net to haul it up. Left alone it frays apart in a few minutes; real ghost nets drift for years.');
+  if (S.mpa) tip('mpa', 'Nothing inside the strip can be netted or trawled; trawlers lift their nets over it. It pays slowly: fish that grow up safe there wander out into the rest of the water. Over the reef it also keeps the coral from being dragged. A lost net that drifts in still fishes: ghost nets obey no rules.');
   if (S.flags.scarTip) tip('scar', 'That trawl dragged along the floor. The net flattens the reef and stirs up silt: broken coral hides no fish, and it takes many minutes to grow back. Set the net higher to fish the open water instead.');
   if (g.on && g.ballast > 0) tip('ballast', '+' + RUN.BALLAST_PAY + ' toward the quota. The lionfish that came with it will hunt your grazers for the rest of the season.');
 }
@@ -107,7 +109,7 @@ function coachTick() {
   if (!C.mode || !menuEl.hidden || !endEl.hidden) { coachEl.hidden = true; return; }
   // a trawler that has left the screen is a finished pass
   for (const tr of S.trawlers) if (!tr.company) C.trawls.add(tr);
-  for (const tr of C.trawls) if (!S.trawlers.includes(tr)) { C.trawls.delete(tr); if (C.L) { C.L.trawlsDone++; C.L.lastTrawl = tr; } if (C.mode !== 'learn') tip('trawl', trawlSummary(tr) + ' Everything in the band dies, young fish and bycatch too.'); }
+  for (const tr of C.trawls) if (!S.trawlers.includes(tr)) { C.trawls.delete(tr); if (C.L) { C.L.trawlsDone++; C.L.lastTrawl = tr; } if (C.mode !== 'learn') { if (tr.excl) tip('excl', trawlSummary(tr) + ' The grid in the net lets big animals out through a hatch; some of the catch slips out with them (about ' + Math.round(EXCLUDER.leak * 100) + '%).'); else tip('trawl', trawlSummary(tr) + ' Everything in the band dies, young fish and bycatch too.' + (tr.prot ? ' The Excluder switch next to the Trawler fits a grid that lets protected animals out.' : '')); } }
   const L = C.L;
   if (C.mode === 'learn' && L.step < LEARN.length && !L.after && LEARN[L.step].done(L)) L.after = true;
   hintChecks();

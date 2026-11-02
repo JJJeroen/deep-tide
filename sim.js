@@ -47,6 +47,46 @@ const SCAR = { on: true, hit: 0.6, reach: 40, half: 480, nut: 0.6, cover: 1 }; /
 // It frays and stops fishing over GHOST.life s. Its kills are harm (S.harm) but never catch; the run counts them for the end screen.
 const GHOST = { on: true, lose: 0.25, life: 240, rate: 0.12, bigRate: 0.45, big: 14, w: 46, h: 26 };
 const scarAt = x => S.scar[Math.min(GCOLS - 1, Math.max(0, (x / GC) | 0))];
+// ---- M8 stewardship tools (part 4). None of them acts until the player (or a bot) uses it.
+//   Protected area (S.mpa = {x0, x1} or null): one vertical strip, MPA.min..MPA.max px wide. Nets and trawls take nothing in it,
+//     and a trawl lifts its net over it (no scars). Head office's trawler respects it too: a closure is the law, not a favour.
+//   Excluder (EXCLUDER.on, the player's setting, read when a trawl starts): a grid in the net that lets big animals out.
+//     Protected animals in the band escape with chance EXCLUDER.prot, everything else (plankton aside) with EXCLUDER.leak,
+//     rolled once per animal per pass. Head office never fits one.
+//   Retrieval: hauling up a ghost net (retrieveGhost) removes it before it fishes on.
+const MPA = { min: 200, max: Math.round(WW / 3) };
+const EXCLUDER = { on: false, prot: 0.9, leak: 0.15 };
+const inMpa = x => !!S.mpa && x >= S.mpa.x0 && x <= S.mpa.x1;
+// the strip a drag from x0 to x1 (any order) marks: MPA.min..MPA.max wide (a long drag keeps the end it started from), inside the water
+function mpaRange(x0, x1) {
+  let a = Math.min(x0, x1), b = Math.max(x0, x1);
+  if (b - a < MPA.min) { const c = (a + b) / 2; a = c - MPA.min / 2; b = c + MPA.min / 2; }
+  if (b - a > MPA.max) { if (x1 < x0) a = b - MPA.max; else b = a + MPA.max; }
+  if (a < 0) { b -= a; a = 0; } if (b > WW) { a -= b - WW; b = WW; }
+  return { x0: Math.round(a), x1: Math.round(b) };
+}
+// one protected area at a time: marking a new one replaces it; null clears it
+function setMpa(x0, x1) {
+  S.mpa = x0 === null ? null : mpaRange(x0, x1);
+  return S.mpa;
+}
+// the ghost net under (x, y), within its outline plus `pad` px (generous on touch screens), or null
+function ghostAt(x, y, pad) {
+  let best = null, bd = 1;
+  for (const gn of S.ghosts) {
+    const ex = (x - gn.x) / (GHOST.w + pad), ey = (y - gn.y) / (GHOST.h + pad), d = ex * ex + ey * ey;
+    if (d <= bd) { bd = d; best = gn; }
+  }
+  return best;
+}
+function retrieveGhost(gn) {
+  const i = S.ghosts.indexOf(gn);
+  if (i < 0) return false;
+  S.ghosts.splice(i, 1);
+  const g = S.game;
+  if (g.on && !g.over) g.ghostsHauled++;
+  return true;
+}
 const massOf = s => Math.pow(s.size || 1, 1.5) / 4;  // biomass a carcass returns as detritus
 let WALL_TURN_SIZE = 14; // wanderers this size and up (turtles, sharks, mantas) turn away from side walls
 let CATCH_RATE = 3;  // strikes per second a predator makes at prey within its reach (see `catch` below)
@@ -157,7 +197,7 @@ const S = {
   t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
   trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
   hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
-  game: { on: false }, ghosts: [], night: 0, reef: { bleach: 0, dead: 0 }, scar: new Float32Array(GCOLS), detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
+  game: { on: false }, ghosts: [], mpa: null, night: 0, reef: { bleach: 0, dead: 0 }, scar: new Float32Array(GCOLS), detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
@@ -177,7 +217,7 @@ function resetWorld() {
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
   // start at the steady state of an untouched ocean: no transient while the nutrient pools fill up
-  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.scarMean = 0; S.ghosts = []; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
+  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.scarMean = 0; S.ghosts = []; S.mpa = null; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
   for (const s of SPECIES) {
     for (let i = 0; i < (s.start || 0); i++) {
       const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
@@ -496,7 +536,7 @@ function addPollution(x, y, r, amt) {
 function netAt(x, y, r) {
   let n = 0;
   for (const a of S.agents) {
-    if (a.dead || a.t === PLANKTON) continue;
+    if (a.dead || a.t === PLANKTON || inMpa(a.x)) continue;
     if (Math.hypot(a.x - x, a.y - y) < r) { a.dead = true; n++; harvest(a); }
   }
   return n;
@@ -529,11 +569,14 @@ function releaseInvaders(x, y) {
   return true;
 }
 
-function startTrawl(y, company) { S.trawlers.push({ x: -80, y, band: 90, speed: 380, company: !!company, scarred: new Uint8Array(GCOLS) }); }
-// the depth whose trawl band (+-90 px) holds the most catch value: where a trawler skipper would set the net
+function startTrawl(y, company) {
+  const excl = !company && EXCLUDER.on;
+  S.trawlers.push({ x: -80, y, band: 90, speed: 380, company: !!company, scarred: new Uint8Array(GCOLS), excl, spared: excl ? new Set() : null, escProt: 0, escOther: 0 });
+}
+// the depth whose trawl band (+-90 px) holds the most catch value outside the protected area: where a skipper would set the net
 function richestBand() {
   let by = 450, bv = -1;
-  for (let y = 90; y <= WH - 90; y += 60) { let v = 0; for (const a of S.agents) if (!a.dead && Math.abs(a.y - y) <= 90) v += RUN_VAL[a.t]; if (v > bv) { bv = v; by = y; } }
+  for (let y = 90; y <= WH - 90; y += 60) { let v = 0; for (const a of S.agents) if (!a.dead && Math.abs(a.y - y) <= 90 && !inMpa(a.x)) v += RUN_VAL[a.t]; if (v > bv) { bv = v; by = y; } }
   return by;
 }
 
@@ -541,13 +584,18 @@ function stepTools(dt) {
   for (const tr of S.trawlers) {
     const nx = tr.x + tr.speed * dt;
     for (const a of S.agents) {
-      if (a.dead || a.x < tr.x - 10 || a.x > nx + 10 || Math.abs(a.y - tr.y) > tr.band) continue;
+      if (a.dead || a.x < tr.x - 10 || a.x > nx + 10 || Math.abs(a.y - tr.y) > tr.band || inMpa(a.x)) continue;
+      // an excluder grid: each animal gets one chance per pass to slip out (protected ones nearly always do)
+      if (tr.excl && a.t !== PLANKTON) {
+        if (tr.spared.has(a)) continue;
+        if (Math.random() < (RUN_PROTECTED[a.t] ? EXCLUDER.prot : EXCLUDER.leak)) { tr.spared.add(a); if (RUN_PROTECTED[a.t]) tr.escProt++; else tr.escOther++; continue; }
+      }
       // bycatch: everything in the net dies, plankton too (at a lower rate)
       if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; harvest(a, tr.company); }
     }
-    // the net mouth dragging over the floor scars each column once per pass, harder the deeper it digs
+    // the net mouth dragging over the floor scars each column once per pass, harder the deeper it digs (lifted over a protected area)
     if (SCAR.on) for (let c = Math.max(0, (tr.x / GC) | 0); c <= Math.min(GCOLS - 1, (nx / GC) | 0); c++) {
-      if (tr.scarred[c]) continue;
+      if (tr.scarred[c] || inMpa((c + 0.5) * GC)) continue;
       const contact = (tr.y + tr.band - bedAt((c + 0.5) * GC)) / SCAR.reach;
       if (contact > 0) { tr.scarred[c] = 1; S.scar[c] = Math.min(1, S.scar[c] + SCAR.hit * Math.min(1, contact)); tr.bottom = true; if (!tr.company && S.scar[c] > 0.3) S.flags.scarTip = true; }
     }
@@ -641,7 +689,7 @@ function waterQuality() { return 1 - Math.min(1, S.avgPoll / 0.2); }
 const demandAt = m => RUN.Q_BASE + RUN.Q_STEP * m;
 function startRun() { // call right after resetWorld()
   S.game = { on: true, over: false, minute: 0, haul: 0, mins: [], streak: 0, bankrupt: false, bycatch: 0,
-    company: 0, companyProt: 0, companyTrips: 0, sendCompany: false, ghostKills: 0, ghostProt: 0, fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
+    company: 0, companyProt: 0, companyTrips: 0, sendCompany: false, ghostKills: 0, ghostProt: 0, ghostsHauled: 0, fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
   S.temp = RUN.TEMP_START;
   log('The fleet needs ' + demandAt(0) + ' in catch this minute, and more every minute after.', 'warn');
 }
@@ -685,7 +733,7 @@ function runScore() {
   const met = g.mins.filter(m => m.ok).length, delivered = g.fish + g.dumped + g.ballast;
   const quotaTotal = g.mins.reduce((a, m) => a + m.demand, 0);
   return { score, parts, quota, bio, water, lost, recovered, met, minutes: g.mins.length, delivered, quotaTotal,
-    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, ghostKills: g.ghostKills, ghostProt: g.ghostProt, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
+    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, ghostKills: g.ghostKills, ghostProt: g.ghostProt, ghostsHauled: g.ghostsHauled, mpa: !!S.mpa, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
 }
 function verdict(quota, lost, bio) {
   if (quota >= 0.9 && lost === 0 && bio >= 0.85) return 'The fleet was fed and the ocean held. That is rarer than it sounds.';

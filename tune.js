@@ -2,6 +2,7 @@
 //   node tune.js [seconds=1800] [runs=10] [scenario] [rescue=on|off]
 //   scenarios: idle | cold | hot              (untouched ocean at warmth 0.5 / 0.2 / 0.75)
 //              pollute | trawl | bottom | ghost | invade | net (player harm at HARM_T seconds, then hands off; warmth 0.5)
+//              trawlmpa | bottommpa (the same harm, with a protected area over the reef third from t = 0: what does it save?)
 //              anthro (scored run, played by bots: see BOT_LIB below; bot=name|all)
 //   rescue=on|off overrides RESCUE_ENABLED from sim.js for this run (default: whatever sim.js says).
 //   env TUNE_PATCH='SPECIES[IDX.shark].meta = 0.5'  JS evaluated in the sim context before reset, for parameter sweeps.
@@ -28,6 +29,11 @@ const HARMS = {
     later: [{ dt: 8, fn: ctx => vm.runInContext('startTrawl(800);', ctx) }] },
   // M8: two lost nets in a healthy ocean (what one bad trawl session leaves behind, without the trawls themselves)
   ghost: { at: HARM_T, once: ctx => vm.runInContext('loseNet(500, 300); loseNet(1100, 450);', ctx) },
+  // M8.4: the trawl and bottom scenarios with the reef third (x 0-533) protected from the start
+  trawlmpa: { setup: 'setMpa(0, MPA.max);', at: HARM_T, once: ctx => vm.runInContext('for (const y of [90, 270, 450, 630, 810]) startTrawl(y);', ctx),
+    later: [{ dt: 8, fn: ctx => vm.runInContext('for (const y of [180, 360, 540, 720]) startTrawl(y);', ctx) }] },
+  bottommpa: { setup: 'setMpa(0, MPA.max);', at: HARM_T, once: ctx => vm.runInContext('startTrawl(790);', ctx),
+    later: [{ dt: 8, fn: ctx => vm.runInContext('startTrawl(800);', ctx) }] },
   // release invaders twice (3 + 3), as two clicks of the tool
   invade: { at: HARM_T, once: ctx => vm.runInContext('spawnMany(INVADER, 400, 300, 3); spawnMany(INVADER, 1200, 450, 3);', ctx) },
   // hold the net (r 50) over the busiest spots for 8 s: picks the densest non-plankton agent each second
@@ -64,6 +70,7 @@ function run(seconds, scenario, rescue, patch) {
   if (patch) vm.runInContext(patch, ctx);
   vm.runInContext(`resetWorld(); S.temp = ${scenario === 'cold' ? 0.2 : scenario === 'hot' ? 0.75 : 0.5};`, ctx);
   const harm = HARMS[scenario];
+  if (harm && harm.setup) vm.runInContext(harm.setup, ctx);
   const STEP = new vm.Script('step(1/30)');
   const steps = Math.round(seconds * 30), zero = new Array(N).fill(0), sum = new Array(N).fill(0), series = [];
   let samples = 0;
@@ -112,7 +119,7 @@ function run(seconds, scenario, rescue, patch) {
 // ---- scenario `anthro`: the scored "Anthropocene run", played by scripted bots. Each bot acts like a player would through
 // the UI: a net click = one netAt(r 50) on one step, a trawl = startTrawl(y), dumping = dumpAt() each step while held,
 // ballast = releaseInvaders() once a ship is in port.
-//   node tune.js 0 10 anthro [bot=steward|light|measured|grazers|careful|greedy|plunder|ballast1|dumper|industry|all]   (seconds are fixed by RUN.DUR)
+//   node tune.js 0 10 anthro [bot=steward|light|measured|grazers|careful|greedy|plunder|ballast1|dumper|industry|reserve|excluder|tidy|all]   (seconds are fixed by RUN.DUR)
 const BOT_LIB = `
 var BOT = { last: {} };
 function every(key, s) { if (S.t - (BOT.last[key] ?? -1e9) >= s) { BOT.last[key] = S.t; return true; } return false; }
@@ -122,7 +129,7 @@ function protNear(x, y, r) { for (const o of S.agents) if (!o.dead && RUN_PROTEC
 function spareNear(x, y, r, spare) { for (const o of S.agents) if (!o.dead && spare.includes(o.t) && Math.hypot(o.x - x, o.y - y) < r) return true; return false; }
 function netSpot(kinds, avoid, spare) {
   let best = null, bv = 0;
-  const mob = S.agents.filter(a => !a.dead && kinds.includes(a.t));
+  const mob = S.agents.filter(a => !a.dead && kinds.includes(a.t) && !inMpa(a.x)); // the net takes nothing inside a protected area
   for (let k = 0; k < 10 && mob.length; k++) {
     const c = mob[(Math.random() * mob.length) | 0];
     if (avoid && protNear(c.x, c.y, 50)) continue;
@@ -163,9 +170,15 @@ const BOTS = {
   dumper: () => { if (short() && S.t % RUN.MINUTE > 45) dumpAt(800, 200, 1 / 30); else BOTS.measured(); },
   // the measured player taking every industry payment: every ballast ship plus the waste top-ups
   industry: () => { releaseInvaders(800, 300); BOTS.dumper(); },
+  // M8.4: the measured player who first closes the reef third (x 0-533) to all fishing
+  reserve: () => { if (!S.mpa) setMpa(0, MPA.max); BOTS.measured(); },
+  // M8.4: the greedy trawler-chaser, with an excluder in every trawl (compare with greedy)
+  excluder: () => { EXCLUDER.on = true; BOTS.greedy(); },
+  // M8.4: the greedy player who also hauls up every lost net as soon as it appears (compare with greedy)
+  tidy: () => { for (const gn of S.ghosts.slice()) retrieveGhost(gn); BOTS.greedy(); },
 };
 `;
-const ANTHRO_BOTS = ['steward', 'light', 'measured', 'grazers', 'careful', 'greedy', 'plunder', 'ballast1', 'dumper', 'industry'];
+const ANTHRO_BOTS = ['steward', 'light', 'measured', 'grazers', 'careful', 'greedy', 'plunder', 'ballast1', 'dumper', 'industry', 'reserve', 'excluder', 'tidy'];
 
 function runAnthro(bot, rescue, patch) {
   const z = () => new Array(32).fill(0); // instrumentation sink (unused here)
@@ -258,7 +271,7 @@ function report(R, seconds, runs, scenario, rescue, patch) {
 
 function reportAnthro(out, bots, runs, patch) {
   console.log(`scenario=anthro x ${runs} runs per bot${patch ? '  patch: ' + patch : ''}`);
-  console.log('bot         score  (sd)   min  max | quota%  met/10  delivered  fish  dump ballast | bio%  water%  lost  recov  bycatch  bankrupt | company trips');
+  console.log('bot         score  (sd)   min  max | quota%  met/10  delivered  fish  dump ballast | bio%  water%  lost  recov  bycatch  bankrupt | company trips  ghost kills');
   for (const b of bots) {
     const R = out[b], avg = f => R.reduce((a, x) => a + f(x), 0) / R.length;
     const m = avg(x => x.score), sd = Math.sqrt(avg(x => (x.score - m) ** 2));
@@ -266,7 +279,7 @@ function reportAnthro(out, bots, runs, patch) {
     for (const x of R) for (const n of x.lost) lostNames[n] = (lostNames[n] || 0) + 1;
     console.log(`${b.padEnd(10)} ${m.toFixed(1).padStart(6)} ${('(' + sd.toFixed(1) + ')').padStart(6)} ${String(Math.min(...R.map(x => x.score))).padStart(5)} ${String(Math.max(...R.map(x => x.score))).padStart(4)} |` +
       ` ${(avg(x => x.quota) * 100).toFixed(0).padStart(6)} ${avg(x => x.met).toFixed(1).padStart(7)} ${avg(x => x.delivered).toFixed(0).padStart(10)} ${avg(x => x.fish).toFixed(0).padStart(5)} ${avg(x => x.dumped).toFixed(0).padStart(5)} ${avg(x => x.ballast).toFixed(0).padStart(7)} |` +
-      ` ${(avg(x => x.bio) * 100).toFixed(0).padStart(4)} ${(avg(x => x.water) * 100).toFixed(0).padStart(7)} ${avg(x => x.lost.length).toFixed(1).padStart(5)} ${avg(x => x.recovered.length).toFixed(1).padStart(6)} ${avg(x => x.bycatch).toFixed(1).padStart(8)} ${(R.filter(x => x.bankrupt).length + '/' + R.length).padStart(9)} | ${avg(x => x.companyTrips).toFixed(1).padStart(13)}` +
+      ` ${(avg(x => x.bio) * 100).toFixed(0).padStart(4)} ${(avg(x => x.water) * 100).toFixed(0).padStart(7)} ${avg(x => x.lost.length).toFixed(1).padStart(5)} ${avg(x => x.recovered.length).toFixed(1).padStart(6)} ${avg(x => x.bycatch).toFixed(1).padStart(8)} ${(R.filter(x => x.bankrupt).length + '/' + R.length).padStart(9)} | ${avg(x => x.companyTrips).toFixed(1).padStart(13)} ${avg(x => x.ghostKills).toFixed(1).padStart(12)}` +
       (Object.keys(lostNames).length ? '   lost: ' + Object.entries(lostNames).map(([n, c]) => n + ' ' + c).join(', ') : ''));
     console.log(' '.repeat(11) + 'parts: ' + R[0].parts.map((p, i) => p.label.replace(/ \(.*/, '') + ' ' + avg(x => x.parts[i].pts).toFixed(1)).join(' | '));
   }
