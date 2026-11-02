@@ -41,7 +41,7 @@ function newGame(m) {
   resetScene();
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
-  resetWorld(); resetDeep(); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; seenTrawlers = []; inspect = null;
+  resetWorld(); resetDeep(); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null;
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;

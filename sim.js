@@ -33,6 +33,13 @@ function nightAt(t) {
 let LIGHT_DEPTH = 600;                          // px over which sunlight falls to 1/e
 const lightAt = y => (1 - 0.8 * S.night) * Math.exp(-y / LIGHT_DEPTH); // sunlight (or moonlight) left at depth y
 const inRefuge = (x, y) => x < REFUGE.x1 && y > REFUGE.y0;
+// the sea floor of the sunlit layer: the reef shelf on the left (~772 px), sloping off past the bottom edge from x ~ 900
+// (scene.js draws it from here). A trawl whose net reaches it drags the bottom.
+const bedAt = x => 772 + 200 * smoothstep(0.3, 0.58, x / WW) + Math.sin(x * 0.013) * 7 + Math.sin(x * 0.047) * 3;
+// ---- M8 bottom-trawl damage: a trawl net dragged over the floor scars it (S.scar, one value per GC-wide column, 0..1).
+// Scarred reef shelters nothing (the refuge's catch cut scales with 1 - scar), and scars heal slowly (half-life SCAR.half s).
+const SCAR = { on: true, hit: 0.6, reach: 40, half: 480 }; // hit: scar added by one full-contact pass; reach: px of net below the bed for full contact
+const scarAt = x => S.scar[Math.min(GCOLS - 1, Math.max(0, (x / GC) | 0))];
 const massOf = s => Math.pow(s.size || 1, 1.5) / 4;  // biomass a carcass returns as detritus
 let WALL_TURN_SIZE = 14; // wanderers this size and up (turtles, sharks, mantas) turn away from side walls
 let CATCH_RATE = 3;  // strikes per second a predator makes at prey within its reach (see `catch` below)
@@ -62,9 +69,10 @@ const RUN = {
   BIO_FLOOR: 0.6,
   PTS: { quota: 40, bio: 40, water: 20, lost: 10, bycatch: 1, bankrupt: 10 },
   // typical do-nothing result, shown on the end screen (node tune.js 0 40 anthro bot=steward). M2: 41 +-5.5, bio 92%; after M6: 40.6 +-5.8;
-  // M8 company trawler (two trips before the fleet goes bankrupt): 37.6 +-9.4, bio 91%.
+  // M8 company trawler (two trips before the fleet goes bankrupt): 37.6 +-9.4, bio 91%; with bottom-trawl scars a second 40-run batch
+  // gave 34.6 +-12.8, bio 90% (head office's band reaches the reef only ~1% of the time, so mostly noise): pooled 36, 90%.
   // Re-run and update it whenever the constants above or the species table change.
-  STEWARD: { score: 38, bio: 0.91 },
+  STEWARD: { score: 36, bio: 0.90 },
 };
 
 // ---- Species table. Order = id. To add a species, add a row (and a draw shape in the renderer if it needs a new one).
@@ -142,7 +150,7 @@ const S = {
   t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
   trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
   hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
-  game: { on: false }, night: 0, reef: { bleach: 0, dead: 0 }, detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
+  game: { on: false }, night: 0, reef: { bleach: 0, dead: 0 }, scar: new Float32Array(GCOLS), detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
@@ -162,7 +170,7 @@ function resetWorld() {
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
   // start at the steady state of an untouched ocean: no transient while the nutrient pools fill up
-  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
+  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
   for (const s of SPECIES) {
     for (let i = 0; i < (s.start || 0); i++) {
       const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
@@ -286,7 +294,7 @@ function updMobile(a, dt) {
         // p is the chance per strike; a predator strikes CATCH_RATE times per second while prey is in reach,
         // so the per-step chance is 1-(1-p)^(CATCH_RATE*dt) and the outcome doesn't depend on the step size
         let p = d.catch ? Math.min(1, d.catch.min + S.counts[d.p] / d.catch.k) : 1;
-        if (ALIVE.refuge && SPECIES[prey.t].school && inRefuge(prey.x, prey.y)) p *= 1 - 0.65 * (1 - S.reef.dead); // small fish hide in the reef; a dead one hides nothing
+        if (ALIVE.refuge && SPECIES[prey.t].school && inRefuge(prey.x, prey.y)) p *= 1 - 0.65 * (1 - S.reef.dead) * (1 - scarAt(prey.x)); // small fish hide in the reef; a dead or trawled one hides nothing
         if (Math.random() < 1 - Math.pow(1 - p, CATCH_RATE * dt)) eat(a, prey, d.gain);
       }
       break;
@@ -360,7 +368,7 @@ function updMobile(a, dt) {
 function step(dt) {
   S.t += dt;
   S.night = nightAt(S.t);
-  stepReef(dt); stepNutrients(dt);
+  stepReef(dt); stepNutrients(dt); stepScar(dt);
   buildHash();
   const c = S.counts;
   for (const a of S.agents) {
@@ -399,6 +407,10 @@ function stepReef(dt) {
   const r = S.reef, target = smoothstep(0.56, 0.72, S.temp);
   r.bleach += (target - r.bleach) * Math.min(1, dt / (target > r.bleach ? 25 : 120));
   if (r.bleach > 0.75) r.dead = Math.min(1, r.dead + dt / 240); else r.dead = Math.max(0, r.dead - dt / 900);
+}
+function stepScar(dt) {
+  const k = Math.min(1, dt * Math.LN2 / SCAR.half);
+  for (let c = 0; c < GCOLS; c++) if (S.scar[c] > 0) S.scar[c] = S.scar[c] < 1e-3 ? 0 : S.scar[c] * (1 - k);
 }
 // Nutrients: detritus settles on the seabed (NUT_SINK s), the seabed wells up again (NUT_RISE s). S.upwell is that flux.
 function stepNutrients(dt) {
@@ -507,7 +519,7 @@ function releaseInvaders(x, y) {
   return true;
 }
 
-function startTrawl(y, company) { S.trawlers.push({ x: -80, y, band: 90, speed: 380, company: !!company }); }
+function startTrawl(y, company) { S.trawlers.push({ x: -80, y, band: 90, speed: 380, company: !!company, scarred: new Uint8Array(GCOLS) }); }
 // the depth whose trawl band (+-90 px) holds the most catch value: where a trawler skipper would set the net
 function richestBand() {
   let by = 450, bv = -1;
@@ -522,6 +534,12 @@ function stepTools(dt) {
       if (a.dead || a.x < tr.x - 10 || a.x > nx + 10 || Math.abs(a.y - tr.y) > tr.band) continue;
       // bycatch: everything in the net dies, plankton too (at a lower rate)
       if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; harvest(a, tr.company); }
+    }
+    // the net mouth dragging over the floor scars each column once per pass, harder the deeper it digs
+    if (SCAR.on) for (let c = Math.max(0, (tr.x / GC) | 0); c <= Math.min(GCOLS - 1, (nx / GC) | 0); c++) {
+      if (tr.scarred[c]) continue;
+      const contact = (tr.y + tr.band - bedAt((c + 0.5) * GC)) / SCAR.reach;
+      if (contact > 0) { tr.scarred[c] = 1; S.scar[c] = Math.min(1, S.scar[c] + SCAR.hit * Math.min(1, contact)); tr.bottom = true; }
     }
     tr.x = nx;
   }

@@ -56,6 +56,8 @@ async function desktop(b) {
 
   await p.keyboard.press('t'); const tr = await toPage(p, 800, 400); await p.mouse.click(tr.x, tr.y); await wait(p, 300);
   check('trawl tool sends out a trawler', await count(p, () => S.trawlers.length > 0));
+  const bt = await toPage(p, 800, 790); await p.mouse.click(bt.x, bt.y); await wait(p, 2500);
+  check('a trawl set near the floor scars the reef', await count(p, () => S.scar[2] > 0.3), 'scar ' + (await count(p, () => S.scar[2])).toFixed(2));
 
   // count what the net takes (netAt is a global function declaration, so render.js picks up the wrapper)
   await p.evaluate(() => { window.__netted = 0; const real = netAt; netAt = (x, y, r) => { const n = real(x, y, r); window.__netted += n; return n; }; });

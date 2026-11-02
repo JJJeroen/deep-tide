@@ -197,6 +197,24 @@ function stepSailing(dt) {
   for (let i = SAILING.length - 1; i >= 0; i--) if (SAILING[i].x - 320 > WW) SAILING.splice(i, 1);
 }
 
+// silt kicked up where a trawl net drags the floor: render-only puffs that rise, spread and settle out over a few seconds
+const SILT = [];
+function stepSilt(dt) {
+  for (const tr of S.trawlers) {
+    const mx = tr.x, by = mx > 0 && mx < WW ? bedAt(mx) : 1e9;
+    if (tr.y + tr.band > by) for (let k = 0; k < 2; k++) SILT.push({ x: mx - Math.random() * 30, y: by - Math.random() * 6, vx: (Math.random() - 0.7) * 10, vy: -4 - Math.random() * 8, r: 6 + Math.random() * 8, t: 0, life: 4 + Math.random() * 4 });
+  }
+  for (const p of SILT) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy *= 1 - 0.4 * dt; p.r += 5 * dt; }
+  while (SILT.length && SILT[0].t > SILT[0].life) SILT.shift();
+  if (SILT.length > 600) SILT.splice(0, SILT.length - 600);
+}
+function drawSilt() {
+  for (const p of SILT) {
+    const k = p.t / p.life, a = 0.28 * (1 - k) * Math.min(1, p.t * 3);
+    ctx.fillStyle = `rgba(112,104,82,${a})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill();
+  }
+}
+
 // The trawler: a hull at the surface (seen from below), warps down to the otter boards that hold the net mouth open,
 // and a cone net whose codend swells with what it takes. The net mouth is exactly the band the sim sweeps (tr.x, tr.y +- band).
 function drawTrawlers(t) {
@@ -309,7 +327,7 @@ function frame(now) {
   if (ptr.cx !== undefined) { const p = toWorld({ clientX: ptr.cx, clientY: ptr.cy }); ptr.x = p.x; ptr.y = p.y; } // the world moved under a still pointer
   stepLamp(real);
   if (!paused) {
-    stepCatch(real * speedMul); stepSailing(real * speedMul);
+    stepCatch(real * speedMul); stepSailing(real * speedMul); stepSilt(real * speedMul);
     acc += real * speedMul;
     let n = 0, stepped = 0;
     while (acc >= dt && n++ < 8) {
@@ -334,7 +352,7 @@ function frame(now) {
   drawWater(); drawDeepWater(S.t); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t);
   for (const a of S.agents) drawAgent(a, S.t);
   drawDeep(S.t);
-  drawSnow(S.t); drawDeepSnow(S.t); drawTrawlers(S.t);
+  drawSnow(S.t); drawDeepSnow(S.t); drawSilt(); drawTrawlers(S.t);
   drawDark(sceneLights()); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t);

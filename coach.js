@@ -83,6 +83,7 @@ function hintChecks() {
   if (MOOD.n > 0.5) tip('night', 'Night. The grazers rise to feed near the surface, where hunters see less in the dark; at dawn the well-fed ones sink again. Dusk and dawn, while they pass through, are when hunters eat.');
   if (ALIVE.nutrients && S.t > 90 && S.upwell < NUT_U0 * 0.8) tip('nutrients', 'Less is drifting down than usual. Dead animals sink, rot on the seabed and well up again as food for the plankton; what the nets take never comes back. Watch the plankton grow slower.');
   if (ALIVE.refuge && S.reef.dead > 0.3) tip('reefdead', 'The reef is dying. Small fish hide among the coral (bottom left) from hunters; a dead reef hides nothing.');
+  if (S.scar.some(v => v > 0.3)) tip('scar', 'That trawl dragged along the floor. The net flattens the reef and stirs up silt: broken coral hides no fish, and it takes many minutes to grow back. Set the net higher to fish the open water instead.');
   if (g.on && g.ballast > 0) tip('ballast', '+' + RUN.BALLAST_PAY + ' toward the quota. The lionfish that came with it will hunt your grazers for the rest of the season.');
 }
 

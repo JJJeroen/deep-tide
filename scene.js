@@ -65,7 +65,7 @@ function drawSunlight(t) {
 // The shelf rises a little above the band wandering animals keep out of (soft wall at WH - 70) so it clears the toolbar;
 // it is drawn behind the animals, so one that swims down there passes in front of the coral rather than into it.
 const BED = [];
-for (let x = 0; x <= WW; x += 10) BED.push(772 + 200 * smooth(0.3, 0.58, x / WW) + Math.sin(x * 0.013) * 7 + Math.sin(x * 0.047) * 3);
+for (let x = 0; x <= WW; x += 10) BED.push(bedAt(x)); // sim.js: the trawl scars this floor
 const bedY = x => BED[Math.max(0, Math.min(BED.length - 1, Math.round(x / 10)))];
 const RIDGE = []; // a far ridge beyond the drop-off, faint, for depth
 for (let x = 0; x <= WW; x += 20) RIDGE.push(872 + Math.sin(x * 0.006 + 1) * 14 + Math.sin(x * 0.021) * 6);
@@ -90,6 +90,7 @@ function coralCol(it) {
   let c = mixHex(it.col, '#f1ece2', b * 0.92);
   c = mixHex(c, '#6d6a4c', d * 0.85);
   c = mixHex(c, '#4c4532', REEF.dull * 0.5);
+  c = mixHex(c, '#77736a', Math.min(1, scarAt(it.x) * 1.3) * 0.85); // trawled: broken, grey, under silt
   return mixHex(c, '#0b3a50', 0.22); // seen through 50 m of water
 }
 function branch(g, x, y, a, len, d, r) {
@@ -109,7 +110,7 @@ function buildReef() {
     rg.fillStyle = mixHex('#123241', '#0a1e28', rr()); rg.beginPath(); rg.ellipse(x, y, w, h, 0, Math.PI, TAU); rg.fill();
   }
   for (const it of reefItems) {
-    const r = seeded(it.seed), x = it.x, y = bedY(x) + 3, col = coralCol(it), k = it.kind, z = it.size;
+    const r = seeded(it.seed), x = it.x, y = bedY(x) + 3, col = coralCol(it), k = it.kind, z = it.size * (1 - 0.55 * Math.min(1, scarAt(x) * 1.3)); // trawled coral is broken off short
     rg.fillStyle = col; rg.strokeStyle = col; rg.globalAlpha = 1;
     if (k < 0.3) branch(rg, x, y, -Math.PI / 2 + (r() - 0.5) * 0.5, (12 + r() * 12) * z, 4, r);      // staghorn
     else if (k < 0.45) {                                                                               // table coral
@@ -173,16 +174,38 @@ function drawSeabed(t) {
   for (let i = 0; i < 60; i++) i ? ctx.lineTo(i * 10, BED[i] + 1) : ctx.moveTo(0, BED[0] + 1);
   ctx.stroke();
   // corals: rebuilt only when their health visibly changed
-  const key = Math.round(S.reef.bleach * 24) + '|' + Math.round(S.reef.dead * 16) + '|' + Math.round(REEF.dull * 10);
+  let scarKey = ''; for (let c = 0; c < REEF_X / GC; c++) scarKey += Math.round(S.scar[c] * 8);
+  const key = Math.round(S.reef.bleach * 24) + '|' + Math.round(S.reef.dead * 16) + '|' + Math.round(REEF.dull * 10) + '|' + scarKey;
   if (key !== REEF.key) { REEF.key = key; buildReef(); }
   ctx.drawImage(reefCanvas, 0, REEF_Y0, REEF_X, REEF_H);
+  drawScars();
   ctx.lineCap = 'round'; ctx.lineWidth = 1.6;
   for (const w of WHIPS) {
+    if (scarAt(w.x) > 0.3) continue; // torn off by the trawl
     const by = bedY(w.x) + 2, sw = Math.sin(t * 0.8 + w.ph) * 9, top = by - w.h;
     ctx.strokeStyle = coralCol(w);
     ctx.beginPath(); ctx.moveTo(w.x, by); ctx.quadraticCurveTo(w.x + sw * 0.3, (by + top) / 2, w.x + sw, top); ctx.stroke();
   }
   ctx.lineCap = 'butt';
+}
+
+// ---- bottom-trawl scars (sim.js S.scar): where a net was dragged over the shelf, the reef is smothered in silt and broken
+// to rubble, with the furrows of the otter boards running along it. Fades as the column heals.
+const RUBBLE = (() => { const r = seeded(29); return Array.from({ length: GCOLS }, () => Array.from({ length: 7 }, () => ({ dx: r() * GC, w: 3 + r() * 7, h: 2 + r() * 4, a: r() * 3, g: r() }))); })();
+function drawScars() {
+  for (let c = 0; c < GCOLS; c++) {
+    const s = S.scar[c]; if (s < 0.02) continue;
+    const x0 = c * GC, by = bedY(x0 + GC / 2); if (by > WH + 10) continue;
+    const g = ctx.createLinearGradient(0, by - 70, 0, by + 6);
+    g.addColorStop(0, 'rgba(58,60,50,0)'); g.addColorStop(0.5, `rgba(70,70,58,${0.5 * s})`); g.addColorStop(1, `rgba(52,50,40,${0.95 * s})`);
+    ctx.fillStyle = g; ctx.fillRect(x0 - 1, by - 70, GC + 2, 76);
+    for (const b of RUBBLE[c]) { // broken coral, grey and toppled
+      ctx.fillStyle = `rgba(${150 + b.g * 40},${148 + b.g * 36},${132 + b.g * 30},${0.75 * s})`;
+      ctx.save(); ctx.translate(x0 + b.dx, by - 1 - b.h / 2); ctx.rotate(b.a); ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h); ctx.restore();
+    }
+    ctx.strokeStyle = `rgba(20,18,14,${0.6 * s})`; ctx.lineWidth = 1.2; // the furrows
+    for (const k of [-3, 2]) { ctx.beginPath(); ctx.moveTo(x0, bedY(x0) + k + 4); ctx.lineTo(x0 + GC, bedY(x0 + GC) + k + 4); ctx.stroke(); }
+  }
 }
 
 // ---- marine snow: the sim's detritus (carcasses and leftovers) sinking to the seabed, drawn as flakes; and at the drop-off
