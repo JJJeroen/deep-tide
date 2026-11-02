@@ -224,10 +224,12 @@ function drawTrawlers(t) {
     ctx.fillStyle = 'rgba(220,240,248,.35)';
     for (let k = 0; k < 18; k++) { const u = ((k * 37 + t * 60) % 140); ctx.beginPath(); ctx.arc(bx - 84 - u, 8 + ((k * 13) % 14), 1 + (k % 3) * 0.6, 0, 6.283); ctx.fill(); }
     // in the scored run, what this pass is worth
-    if (S.game.on && tr.catch) {
+    // (head office's trawler: its catch is not the player's, so it carries a name instead of a value)
+    if (S.game.on && (tr.catch || tr.company)) {
       const fs = Math.max(15, 12 / scale);
       ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(240,214,140,.95)'; ctx.fillText('+' + Math.round((tr.value || 0) * 2) / 2, ex - cr * 0.6, cy - cr - 8);
+      ctx.fillStyle = tr.company ? 'rgba(200,210,218,.95)' : 'rgba(240,214,140,.95)';
+      ctx.fillText(tr.company ? 'Head office' : '+' + Math.round((tr.value || 0) * 2) / 2, ex - cr * 0.6, cy - cr - 8);
       if (tr.prot) { ctx.fillStyle = 'rgba(255,107,138,.95)'; ctx.fillText(tr.prot + ' protected', ex - cr * 0.6, cy - cr - 8 - fs * 1.15); }
       ctx.textAlign = 'left';
     }

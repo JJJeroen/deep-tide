@@ -107,12 +107,13 @@ function showEnd() {
       <tr><td>Gone at the end</td><td>${lost}</td></tr>
       <tr><td>Lost, then came back</td><td>${list(r.recovered)}</td></tr>
       <tr><td>Protected animals caught</td><td>${r.bycatch}</td></tr>
+      ${r.companyTrips ? `<tr><td>Head office's trawlers</td><td>${r.companyTrips} trip${r.companyTrips > 1 ? 's' : ''} after short minutes · took ${Math.round(r.company)} in fish · killed ${r.companyProt} protected (not on your score; the ocean paid)</td></tr>` : ''}
     </table>
     <h3>How the score adds up</h3>
     <table>${r.parts.filter(p => p.pts || p.label.startsWith('Quota') || p.label.startsWith('Bio') || p.label.startsWith('Water'))
       .map(p => `<tr><td>${p.label}</td><td class="${p.pts < 0 ? 'neg' : ''}">${p.pts > 0 ? '+' : ''}${p.pts}</td></tr>`).join('')}</table>
-    <p><b style="color:var(--text)">What would the steward have done?</b> Left the nets dry. That typically ends around
-      <b style="color:var(--text)">${st.score}</b> points: biodiversity ${pct(st.bio)}, no quota delivered, the fleet bankrupt.</p>
+    <p><b style="color:var(--text)">What would the steward have done?</b> Left the nets dry, and head office sent its own trawler twice before the fleet went bankrupt. That typically ends around
+      <b style="color:var(--text)">${st.score}</b> points: biodiversity ${pct(st.bio)}, no quota delivered.</p>
     <div class="actions"><button id="again" class="on">Play again</button><button id="toSandbox">Sandbox</button></div>`;
   endEl.hidden = false;
   document.getElementById('again').onclick = () => newGame('run');

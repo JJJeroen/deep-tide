@@ -128,11 +128,7 @@ function netSpot(kinds, avoid, spare) {
   }
   return best;
 }
-function trawlBand() { // the depth whose 180 px band holds the most catch value
-  let by = 450, bv = -1;
-  for (let y = 90; y <= 810; y += 60) { let v = 0; for (const a of S.agents) if (!a.dead && Math.abs(a.y - y) <= 90) v += RUN_VAL[a.t]; if (v > bv) { bv = v; by = y; } }
-  return by;
-}
+const trawlBand = richestBand; // sim.js: the band a skipper would pick (head office's trawler uses it too)
 const short = () => S.game.haul < demandAt(S.game.minute);
 const BOTS = {
   steward: () => {},
@@ -257,7 +253,7 @@ function report(R, seconds, runs, scenario, rescue, patch) {
 
 function reportAnthro(out, bots, runs, patch) {
   console.log(`scenario=anthro x ${runs} runs per bot${patch ? '  patch: ' + patch : ''}`);
-  console.log('bot         score  (sd)   min  max | quota%  met/10  delivered  fish  dump ballast | bio%  water%  lost  recov  bycatch  bankrupt');
+  console.log('bot         score  (sd)   min  max | quota%  met/10  delivered  fish  dump ballast | bio%  water%  lost  recov  bycatch  bankrupt | company trips');
   for (const b of bots) {
     const R = out[b], avg = f => R.reduce((a, x) => a + f(x), 0) / R.length;
     const m = avg(x => x.score), sd = Math.sqrt(avg(x => (x.score - m) ** 2));
@@ -265,7 +261,7 @@ function reportAnthro(out, bots, runs, patch) {
     for (const x of R) for (const n of x.lost) lostNames[n] = (lostNames[n] || 0) + 1;
     console.log(`${b.padEnd(10)} ${m.toFixed(1).padStart(6)} ${('(' + sd.toFixed(1) + ')').padStart(6)} ${String(Math.min(...R.map(x => x.score))).padStart(5)} ${String(Math.max(...R.map(x => x.score))).padStart(4)} |` +
       ` ${(avg(x => x.quota) * 100).toFixed(0).padStart(6)} ${avg(x => x.met).toFixed(1).padStart(7)} ${avg(x => x.delivered).toFixed(0).padStart(10)} ${avg(x => x.fish).toFixed(0).padStart(5)} ${avg(x => x.dumped).toFixed(0).padStart(5)} ${avg(x => x.ballast).toFixed(0).padStart(7)} |` +
-      ` ${(avg(x => x.bio) * 100).toFixed(0).padStart(4)} ${(avg(x => x.water) * 100).toFixed(0).padStart(7)} ${avg(x => x.lost.length).toFixed(1).padStart(5)} ${avg(x => x.recovered.length).toFixed(1).padStart(6)} ${avg(x => x.bycatch).toFixed(1).padStart(8)} ${(R.filter(x => x.bankrupt).length + '/' + R.length).padStart(9)}` +
+      ` ${(avg(x => x.bio) * 100).toFixed(0).padStart(4)} ${(avg(x => x.water) * 100).toFixed(0).padStart(7)} ${avg(x => x.lost.length).toFixed(1).padStart(5)} ${avg(x => x.recovered.length).toFixed(1).padStart(6)} ${avg(x => x.bycatch).toFixed(1).padStart(8)} ${(R.filter(x => x.bankrupt).length + '/' + R.length).padStart(9)} | ${avg(x => x.companyTrips).toFixed(1).padStart(13)}` +
       (Object.keys(lostNames).length ? '   lost: ' + Object.entries(lostNames).map(([n, c]) => n + ' ' + c).join(', ') : ''));
     console.log(' '.repeat(11) + 'parts: ' + R[0].parts.map((p, i) => p.label.replace(/ \(.*/, '') + ' ' + avg(x => x.parts[i].pts).toFixed(1)).join(' | '));
   }

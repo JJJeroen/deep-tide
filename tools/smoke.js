@@ -115,7 +115,9 @@ async function desktop(b) {
   await p.click('#menuBtn'); await p.click('[data-mode=run]'); await wait(p, 500);
   check('run: HUD shows', await p.isVisible('#hud'));
   check('run: stock tool is locked', await p.isDisabled('[data-tool=stock]'));
-  await p.evaluate(() => { for (let i = 0; i < 30 * 597; i++) step(1 / 30); }); // sim to just before the end, then let the page finish it
+  await p.evaluate(() => { for (let i = 0; i < 30 * 61; i++) step(1 / 30); }); // a first minute with no catch
+  check('run: a short minute sends head office\'s trawler', await count(p, () => S.trawlers.some(t => t.company) && S.game.companyTrips === 1));
+  await p.evaluate(() => { for (let i = 0; i < 30 * 536; i++) step(1 / 30); }); // sim to just before the end, then let the page finish it
   await p.waitForFunction(() => !document.getElementById('end').hidden, null, { timeout: 15000 }).catch(() => {});
   check('run: end screen appears after 10:00', await p.isVisible('#end'));
   check('run: end screen has a verdict', await count(p, () => document.getElementById('endCard').innerText.trim().length > 40));

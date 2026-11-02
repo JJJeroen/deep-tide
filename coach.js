@@ -39,7 +39,7 @@ const LEARN = [
     task: 'Bring in 6 catch in 30 seconds. Grazers are worth 1, hunters 4, jellyfish ½. Use any tool.',
     prog: L => Math.floor(L.qHaul * 2) / 2 + ' of 6 · ' + Math.max(0, Math.ceil(30 - (S.t - L.qStart))) + ' s left',
     bar: L => Math.min(1, L.qHaul / 6), done: L => L.qHaul >= 6 || S.t - L.qStart >= 30,
-    after: L => (L.qHaul >= 6 ? 'Quota met. ' : 'Short by ' + Math.ceil(6 - L.qHaul) + '. ') + 'In the run, each short minute costs points, and three in a row bankrupt the fleet (−10, once). A species gone at the end costs 10 too, every one of them.' },
+    after: L => (L.qHaul >= 6 ? 'Quota met. ' : 'Short by ' + Math.ceil(6 - L.qHaul) + '. ') + 'In the run, each short minute costs points and sends head office\'s own trawler, which fishes without care; three in a row bankrupt the fleet (−10, once). A species gone at the end costs 10 too, every one of them.' },
   { title: 'The ballast ship', tool: 'invader',
     text: 'Now and then a ship offers money if you let it skip treating its ballast water. In the scored run that is the Skip ballast button: +' + RUN.BALLAST_PAY + ' toward the quota.',
     task: 'Pick "Release invader" and click anywhere in the water.',
@@ -75,7 +75,7 @@ function hintChecks() {
   if (S.counts[INVADER] > 0) tip('inv', 'Invaders hunt grazers and jellyfish, and nothing here eats them. While they are around, lost species take much longer to return.');
   for (const s of NATIVE) if (s.recolonize && S.zero[s.i] && S.harmed[s.i])
     tip('lost' + s.i, s.name + ' are gone. If the water stays clean and cool and there is enough for them to eat, they drift back from the open ocean in ' + minutes(s.recolonize.after) + '.');
-  if (g.on && g.mins.length && !g.mins[g.mins.length - 1].ok) tip('short', 'Short this minute. Each short minute lowers your quota score; three in a row bankrupt the fleet (−10, once). A species gone at the end costs 10 as well.');
+  if (g.on && g.mins.length && !g.mins[g.mins.length - 1].ok) tip('short', 'Short this minute. Each short minute lowers your quota score, and head office sends its own trawler, which takes everything in the busiest band. Three short in a row bankrupt the fleet (−10, once) and the company trawlers stop. A species gone at the end costs 10 as well.');
   if (S.reef.bleach > 0.35) tip('bleach', 'The reef is bleaching. In water this warm, corals expel the algae that feed them and turn white. If it stays warm they starve and algae take over the skeletons; a reef recovers far slower than it dies.');
   if (S.t > 30 && SOUND.ac && SOUND.on && SOUND.ac.state === 'running')
     tip('sound', 'Listen: every species is one note in the chord, as loud as it is common. Lose a species and its note goes silent. Murky water muffles it, warm water makes it waver, a clashing note means invaders. The menu explains every sound.');

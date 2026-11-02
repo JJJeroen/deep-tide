@@ -46,6 +46,10 @@ let CATCH_RATE = 3;  // strikes per second a predator makes at prey within its r
 //                 - PTS.lost per native species absent at the end
 //                 - PTS.bycatch per protected animal caught
 //                 - PTS.bankrupt once, if BANKRUPT_AFTER minutes in a row are missed
+// A short minute also sends head office's own trawler through the richest band at the start of the next one (startTrawl
+// with company = true): its catch is the company's, not quota, and the protected animals it kills are not scored as the
+// player's bycatch (owner, 2 Nov: the player pays through the ocean, not for a boat they didn't steer); the end screen lists them.
+// A bankrupt fleet has no boats left, so it stops then (a run that never fishes sees at most BANKRUPT_AFTER - 1 of them).
 const RUN = {
   DUR: 600, MINUTE: 60,                 // sim seconds; speed-up still works because the clock is sim time
   TEMP_START: 0.5, TEMP_END: 0.66,      // warmth drifts up on its own: climate pressure the player can't touch
@@ -57,9 +61,10 @@ const RUN = {
   BALLAST_PAY: 4, BALLAST_EVERY: 60,    // skipping ballast treatment pays once per ship; one ship a minute
   BIO_FLOOR: 0.6,
   PTS: { quota: 40, bio: 40, water: 20, lost: 10, bycatch: 1, bankrupt: 10 },
-  // typical do-nothing result (node tune.js 0 10 anthro bot=steward: score 41 +-5.5, biodiversity 92%; re-measured after M6: 40.6 +-5.8, 92%), shown on the end screen.
+  // typical do-nothing result, shown on the end screen (node tune.js 0 40 anthro bot=steward). M2: 41 +-5.5, bio 92%; after M6: 40.6 +-5.8;
+  // M8 company trawler (two trips before the fleet goes bankrupt): 37.6 +-9.4, bio 91%.
   // Re-run and update it whenever the constants above or the species table change.
-  STEWARD: { score: 41, bio: 0.92 },
+  STEWARD: { score: 38, bio: 0.91 },
 };
 
 // ---- Species table. Order = id. To add a species, add a row (and a draw shape in the renderer if it needs a new one).
@@ -475,12 +480,14 @@ function netAt(x, y, r) {
   return n;
 }
 // an animal taken by a net or trawler: marks the harm, and in the scored run lands it on deck as catch (or protected bycatch)
-function harvest(a) {
+// (company = head office's trawler: neither its catch nor its bycatch is the player's, it is only counted for the end screen)
+function harvest(a, company) {
   S.harm[a.t] = S.t; S.effects.push({ x: a.x, y: a.y, t: 0, kind: 2, sp: a.t }); // sp: the renderer hauls the right animal up
   const g = S.game;
   if (!g.on || g.over || a.t === PLANKTON) return;
-  g.caught[a.t]++;
-  if (RUN_PROTECTED[a.t]) g.bycatch++; else { g.haul += RUN_VAL[a.t]; g.fish += RUN_VAL[a.t]; }
+  if (company) { if (RUN_PROTECTED[a.t]) g.companyProt++; else g.company += RUN_VAL[a.t]; }
+  else if (RUN_PROTECTED[a.t]) g.bycatch++;
+  else { g.haul += RUN_VAL[a.t]; g.fish += RUN_VAL[a.t]; }
 }
 // dumping waste: pollution everywhere, and in the scored run an industry contract that pays toward the quota
 function dumpAt(x, y, dt) {
@@ -500,7 +507,13 @@ function releaseInvaders(x, y) {
   return true;
 }
 
-function startTrawl(y) { S.trawlers.push({ x: -80, y, band: 90, speed: 380 }); }
+function startTrawl(y, company) { S.trawlers.push({ x: -80, y, band: 90, speed: 380, company: !!company }); }
+// the depth whose trawl band (+-90 px) holds the most catch value: where a trawler skipper would set the net
+function richestBand() {
+  let by = 450, bv = -1;
+  for (let y = 90; y <= WH - 90; y += 60) { let v = 0; for (const a of S.agents) if (!a.dead && Math.abs(a.y - y) <= 90) v += RUN_VAL[a.t]; if (v > bv) { bv = v; by = y; } }
+  return by;
+}
 
 function stepTools(dt) {
   for (const tr of S.trawlers) {
@@ -508,7 +521,7 @@ function stepTools(dt) {
     for (const a of S.agents) {
       if (a.dead || a.x < tr.x - 10 || a.x > nx + 10 || Math.abs(a.y - tr.y) > tr.band) continue;
       // bycatch: everything in the net dies, plankton too (at a lower rate)
-      if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; harvest(a); }
+      if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; harvest(a, tr.company); }
     }
     tr.x = nx;
   }
@@ -566,8 +579,8 @@ function waterQuality() { return 1 - Math.min(1, S.avgPoll / 0.2); }
 // ---- Anthropocene run (pure state; the UI only reads S.game)
 const demandAt = m => RUN.Q_BASE + RUN.Q_STEP * m;
 function startRun() { // call right after resetWorld()
-  S.game = { on: true, over: false, minute: 0, haul: 0, mins: [], streak: 0, bankrupt: false, caught: zeros(), bycatch: 0,
-    fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
+  S.game = { on: true, over: false, minute: 0, haul: 0, mins: [], streak: 0, bankrupt: false, bycatch: 0,
+    company: 0, companyProt: 0, companyTrips: 0, sendCompany: false, fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
   S.temp = RUN.TEMP_START;
   log('The fleet needs ' + demandAt(0) + ' in catch this minute, and more every minute after.', 'warn');
 }
@@ -577,6 +590,7 @@ function stepGame() {
   S.temp = RUN.TEMP_START + (RUN.TEMP_END - RUN.TEMP_START) * Math.min(1, S.t / RUN.DUR);
   for (const s of NATIVE) if (S.counts[s.i] === 0) g.everZero[s.i] = 1;
   if (S.t >= (g.minute + 1) * RUN.MINUTE - 1e-6) closeMinute(g);
+  if (g.sendCompany && S.t < RUN.DUR - 1e-6) { g.sendCompany = false; g.companyTrips++; startTrawl(richestBand(), true); }
   if (S.t >= RUN.DUR - 1e-6) { g.over = true; g.result = runScore(); }
 }
 function closeMinute(g) {
@@ -587,7 +601,8 @@ function closeMinute(g) {
     if (ok) log('Minute ' + (g.minute + 1) + ': quota met. Next minute the fleet wants ' + demandAt(g.minute + 1) + '.', 'good');
     else log('Minute ' + (g.minute + 1) + ': short by ' + Math.ceil(demand - g.haul) + '. Next minute the fleet wants ' + demandAt(g.minute + 1) + '.', 'warn');
   }
-  if (!g.bankrupt && g.streak >= RUN.BANKRUPT_AFTER) { g.bankrupt = true; log('Three short minutes in a row. The fleet is bankrupt; the bank takes its cut.', 'warn'); }
+  if (!g.bankrupt && g.streak >= RUN.BANKRUPT_AFTER) { g.bankrupt = true; log('Three short minutes in a row. The fleet is bankrupt; the bank takes its cut, and its boats.', 'warn'); }
+  else if (!ok && !last && !g.bankrupt) { g.sendCompany = true; log('Head office sends its own trawler to make up the shortfall. It fishes where the fish are.', 'warn'); }
   g.haul = 0; g.minute++;
 }
 function runScore() {
@@ -609,7 +624,7 @@ function runScore() {
   const met = g.mins.filter(m => m.ok).length, delivered = g.fish + g.dumped + g.ballast;
   const quotaTotal = g.mins.reduce((a, m) => a + m.demand, 0);
   return { score, parts, quota, bio, water, lost, recovered, met, minutes: g.mins.length, delivered, quotaTotal,
-    fish: g.fish, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
+    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
 }
 function verdict(quota, lost, bio) {
   if (quota >= 0.9 && lost === 0 && bio >= 0.85) return 'The fleet was fed and the ocean held. That is rarer than it sounds.';
