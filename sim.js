@@ -108,7 +108,7 @@ const SPECIES = [
     eats: [{ prey: 'jelly', gain: 30, reach: 12, catch: { min: 0, k: 300 } }, { prey: 'plankton', gain: 1.5, reach: 14, below: 0.7 }],
     recolonize: { after: 300, natural: 30, n: 2, needs: { jelly: 8 }, rescue: { below: 2, every: 120 } } },
   { id: 'shark', name: 'Sharks', color: '#9fb6cf', shape: 'shark', size: 17,
-    speed: 78, turn: 2.5, vision: 190, meta: 1.0, max: 400, rep: 330, repCost: 165, breed: 60, pol: 3, cap: 12, life: [700, 1100],
+    speed: 78, turn: 2.5, vision: 190, meta: 0.75, max: 400, rep: 330, repCost: 165, breed: 60, pol: 3, cap: 12, life: [700, 1100],
     start: 2, startY: [200, 750], stock: 2, satiate: 0.8, chase: 1.5, crowd: { k: 3, tax: 0.5 },
     eats: [{ prey: 'hunter', gain: 140, reach: 12, catch: { min: 0, k: 200 } }],
     recolonize: { after: 400, natural: 30, n: 2, needs: { hunter: 4 }, rescue: { below: 2, every: 150 } } },
@@ -254,6 +254,11 @@ function updMobile(a, dt) {
       const m0 = Math.hypot(dx, dy) || 1, rx = Math.min(REFUGE.x1 - 60, a.x) - a.x, ry = Math.max(REFUGE.y0 + 60, a.y) - a.y, rm = Math.hypot(rx, ry) || 1;
       dx = dx / m0 + rx / rm * 0.8; dy = dy / m0 + ry / rm * 0.8;
     }
+    // cornered: an escape that points into a wall turns along it instead, so the animal bolts sideways rather than
+    // pressing itself against the edge. Without this a shark could hold a hunter on a side wall for 15 s and more
+    // (the last of the wall pinning); sharks lost those easy kills, which shark meta 0.75 (was 1.0) gives back.
+    if ((a.x < 40 && dx < 0) || (a.x > WW - 40 && dx > 0)) { dy += (dy < 0 ? -1 : 1) * Math.abs(dx); dx = 0; }
+    if ((a.y < 40 && dy < 0) || (a.y > WH - 40 && dy > 0)) { dx += (dx < 0 ? -1 : 1) * Math.abs(dy); dy = 0; }
   } else if (s.filter) {
     const d = s.eats[0], f = nearest(a.x, a.y, d.reach, d.mask, a);
     if (f) eat(a, f, d.gain);
