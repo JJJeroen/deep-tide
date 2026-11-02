@@ -1,7 +1,7 @@
 // Headless tuning harness for Deep Tide. Runs sim.js (the whole simulation, no DOM) in node.
 //   node tune.js [seconds=1800] [runs=10] [scenario] [rescue=on|off]
 //   scenarios: idle | cold | hot              (untouched ocean at warmth 0.5 / 0.2 / 0.75)
-//              pollute | trawl | bottom | invade | net (player harm at HARM_T seconds, then hands off; warmth 0.5)
+//              pollute | trawl | bottom | ghost | invade | net (player harm at HARM_T seconds, then hands off; warmth 0.5)
 //              anthro (scored run, played by bots: see BOT_LIB below; bot=name|all)
 //   rescue=on|off overrides RESCUE_ENABLED from sim.js for this run (default: whatever sim.js says).
 //   env TUNE_PATCH='SPECIES[IDX.shark].meta = 0.5'  JS evaluated in the sim context before reset, for parameter sweeps.
@@ -26,6 +26,8 @@ const HARMS = {
   // M8: two trawls dragged over the reef shelf (net bottom 90 px below y 790 = into the floor at ~772-780), 8 s apart
   bottom: { at: HARM_T, once: ctx => vm.runInContext('startTrawl(790);', ctx),
     later: [{ dt: 8, fn: ctx => vm.runInContext('startTrawl(800);', ctx) }] },
+  // M8: two lost nets in a healthy ocean (what one bad trawl session leaves behind, without the trawls themselves)
+  ghost: { at: HARM_T, once: ctx => vm.runInContext('loseNet(500, 300); loseNet(1100, 450);', ctx) },
   // release invaders twice (3 + 3), as two clicks of the tool
   invade: { at: HARM_T, once: ctx => vm.runInContext('spawnMany(INVADER, 400, 300, 3); spawnMany(INVADER, 1200, 450, 3);', ctx) },
   // hold the net (r 50) over the busiest spots for 8 s: picks the densest non-plankton agent each second

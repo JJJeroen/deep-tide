@@ -215,6 +215,46 @@ function drawSilt() {
   }
 }
 
+// ghost nets (sim.js S.ghosts): a torn, pale piece of mesh with a few floats, swaying as it drifts, with what it caught
+// hanging in it. Each net gets its own ragged outline and holes (render-only, kept per net object).
+const GHOST_SHAPE = new WeakMap();
+function ghostShape(gn) {
+  let sh = GHOST_SHAPE.get(gn);
+  if (!sh) {
+    const r = seeded((gn.x * 7919 + gn.y * 104729) | 0);
+    sh = { rim: Array.from({ length: 14 }, (_, i) => ({ a: i / 14 * 6.283, k: 0.62 + r() * 0.45 })), holes: Array.from({ length: 60 }, () => r() < 0.28), floats: Array.from({ length: 4 }, () => -0.8 + r() * 1.6) };
+    GHOST_SHAPE.set(gn, sh);
+  }
+  return sh;
+}
+function drawGhosts(t) {
+  for (const gn of S.ghosts) {
+    const sh = ghostShape(gn), fray = Math.max(0, 1 - gn.age / GHOST.life), a = 0.25 + 0.5 * fray, W = GHOST.w, H = GHOST.h;
+    ctx.save(); ctx.translate(gn.x, gn.y);
+    const pt = (p, i) => ({ x: Math.cos(p.a) * W * p.k + Math.sin(t * 0.7 + i) * 2.5, y: Math.sin(p.a) * H * p.k + Math.cos(t * 0.6 + i * 1.3) * 2 });
+    const rim = sh.rim.map(pt);
+    ctx.beginPath(); rim.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
+    ctx.fillStyle = `rgba(200,210,205,${0.06 * a})`; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.strokeStyle = `rgba(215,222,215,${0.55 * a})`; ctx.lineWidth = 0.8;
+    let h = 0;
+    for (let x = -W; x <= W; x += 9) { if (sh.holes[h++ % 60]) continue; ctx.beginPath(); ctx.moveTo(x, -H); ctx.quadraticCurveTo(x + Math.sin(t + x) * 3, 0, x - 4, H); ctx.stroke(); }
+    for (let y = -H; y <= H; y += 8) { if (sh.holes[h++ % 60]) continue; ctx.beginPath(); ctx.moveTo(-W, y); ctx.quadraticCurveTo(0, y + Math.sin(t * 0.8 + y) * 3, W, y + 3); ctx.stroke(); }
+    ctx.restore();
+    ctx.strokeStyle = `rgba(225,230,222,${0.7 * a})`; ctx.lineWidth = 1.3; // the torn rope edge, with loose ends
+    ctx.beginPath(); rim.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+    for (let i = 0; i < 3; i++) { const p = rim[i * 4 + 2]; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.quadraticCurveTo(p.x * 1.3, p.y * 1.3 + 8, p.x * 1.45 + Math.sin(t + i) * 4, p.y * 1.4 + 16); ctx.stroke(); }
+    for (const f of sh.floats) { ctx.fillStyle = `rgba(232,128,62,${0.85 * a})`; ctx.beginPath(); ctx.arc(f * W * 0.7, -H * 0.72 + Math.sin(t + f * 5) * 1.5, 3.2, 0, 6.283); ctx.fill(); }
+    for (const c of gn.held) { // the catch nobody will haul up
+      const spr = SPRITES[c.t]; if (!spr) continue;
+      const fr = spr.tints[Math.min(2, spr.tints.length - 1)][0], k = RS * 0.85;
+      ctx.save(); ctx.translate(Math.max(-W * 0.7, Math.min(W * 0.7, c.dx)), Math.max(-H * 0.6, Math.min(H * 0.6, c.dy))); ctx.rotate(c.ang + 0.6); ctx.globalAlpha = 0.45 + 0.4 * fray;
+      ctx.drawImage(fr, spr.x0 * k, spr.y0 * k, spr.w * k, spr.h * k); ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
 // The trawler: a hull at the surface (seen from below), warps down to the otter boards that hold the net mouth open,
 // and a cone net whose codend swells with what it takes. The net mouth is exactly the band the sim sweeps (tr.x, tr.y +- band).
 function drawTrawlers(t) {
@@ -351,6 +391,7 @@ function frame(now) {
   // under water, back to front; then the darkness and what glows through it; then the sky and the fleet on top
   drawWater(); drawDeepWater(S.t); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t);
   for (const a of S.agents) drawAgent(a, S.t);
+  drawGhosts(S.t);
   drawDeep(S.t);
   drawSnow(S.t); drawDeepSnow(S.t); drawSilt(); drawTrawlers(S.t);
   drawDark(sceneLights()); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);

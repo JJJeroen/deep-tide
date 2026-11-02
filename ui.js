@@ -107,6 +107,7 @@ function showEnd() {
       <tr><td>Gone at the end</td><td>${lost}</td></tr>
       <tr><td>Lost, then came back</td><td>${list(r.recovered)}</td></tr>
       <tr><td>Protected animals caught</td><td>${r.bycatch}</td></tr>
+      ${r.ghostKills ? `<tr><td>Lost nets</td><td>killed ${r.ghostKills} animal${r.ghostKills > 1 ? 's' : ''}, ${r.ghostProt} of them protected, after the trawl was gone</td></tr>` : ''}
       ${r.companyTrips ? `<tr><td>Head office's trawlers</td><td>${r.companyTrips} trip${r.companyTrips > 1 ? 's' : ''} after short minutes · took ${Math.round(r.company)} in fish · killed ${r.companyProt} protected (not on your score; the ocean paid)</td></tr>` : ''}
     </table>
     <h3>How the score adds up</h3>

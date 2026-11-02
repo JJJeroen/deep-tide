@@ -39,6 +39,10 @@ const bedAt = x => 772 + 200 * smoothstep(0.3, 0.58, x / WW) + Math.sin(x * 0.01
 // ---- M8 bottom-trawl damage: a trawl net dragged over the floor scars it (S.scar, one value per GC-wide column, 0..1).
 // Scarred reef shelters nothing (the refuge's catch cut scales with 1 - scar), and scars heal slowly (half-life SCAR.half s).
 const SCAR = { on: true, hit: 0.6, reach: 40, half: 480 }; // hit: scar added by one full-contact pass; reach: px of net below the bed for full contact
+// ---- M8 ghost nets: a trawl pass loses part of its net with chance GHOST.lose. The lost net drifts with the current and sinks
+// to the floor, and keeps fishing: any animal that swims into it is entangled (chance per second, higher for the big slow ones).
+// It frays and stops fishing over GHOST.life s. Its kills are harm (S.harm) but never catch; the run counts them for the end screen.
+const GHOST = { on: true, lose: 0.25, life: 240, rate: 0.12, bigRate: 0.45, big: 14, w: 46, h: 26 };
 const scarAt = x => S.scar[Math.min(GCOLS - 1, Math.max(0, (x / GC) | 0))];
 const massOf = s => Math.pow(s.size || 1, 1.5) / 4;  // biomass a carcass returns as detritus
 let WALL_TURN_SIZE = 14; // wanderers this size and up (turtles, sharks, mantas) turn away from side walls
@@ -150,7 +154,7 @@ const S = {
   t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
   trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
   hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
-  game: { on: false }, night: 0, reef: { bleach: 0, dead: 0 }, scar: new Float32Array(GCOLS), detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
+  game: { on: false }, ghosts: [], night: 0, reef: { bleach: 0, dead: 0 }, scar: new Float32Array(GCOLS), detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
@@ -170,7 +174,7 @@ function resetWorld() {
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
   // start at the steady state of an untouched ocean: no transient while the nutrient pools fill up
-  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
+  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.ghosts = []; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
   for (const s of SPECIES) {
     for (let i = 0; i < (s.start || 0); i++) {
       const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
@@ -543,7 +547,40 @@ function stepTools(dt) {
     }
     tr.x = nx;
   }
+  for (const tr of S.trawlers) if (tr.x >= WW + 120 && GHOST.on && Math.random() < GHOST.lose) loseNet(rnd(150, WW - 150), tr.y);
   S.trawlers = S.trawlers.filter(t => t.x < WW + 120);
+  stepGhosts(dt);
+}
+function loseNet(x, y) {
+  S.ghosts.push({ x, y, age: 0, vx: rnd(-6, 6), kills: 0, held: [] });
+  if (!S.flags.ghostLog) { S.flags.ghostLog = true; log('Part of a trawl net tore loose. It will keep fishing on its own.', 'warn'); }
+}
+function stepGhosts(dt) {
+  for (const gn of S.ghosts) {
+    gn.age += dt;
+    const floor = Math.min(WH - 6, bedAt(gn.x) - 8);
+    gn.x = Math.max(GHOST.w, Math.min(WW - GHOST.w, gn.x + gn.vx * dt));
+    if (gn.y < floor) gn.y = Math.min(floor, gn.y + 1.5 * dt); // sinks slowly, then lies on the bottom
+    const fray = 1 - gn.age / GHOST.life;
+    if (fray <= 0) continue;
+    const x0 = Math.max(0, ((gn.x - GHOST.w) / HC) | 0), x1 = Math.min(HCOLS - 1, ((gn.x + GHOST.w) / HC) | 0);
+    const y0 = Math.max(0, ((gn.y - GHOST.h) / HC) | 0), y1 = Math.min(HROWS - 1, ((gn.y + GHOST.h) / HC) | 0);
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) for (const a of S.hash[cy * HCOLS + cx]) {
+      if (a.dead || a.t === PLANKTON) continue;
+      const ex = (a.x - gn.x) / GHOST.w, ey = (a.y - gn.y) / GHOST.h;
+      if (ex * ex + ey * ey > 1) continue;
+      const rate = (SPECIES[a.t].size >= GHOST.big ? GHOST.bigRate : GHOST.rate) * fray;
+      if (Math.random() < 1 - Math.exp(-rate * dt)) entangle(gn, a);
+    }
+  }
+  S.ghosts = S.ghosts.filter(gn => gn.age < GHOST.life);
+}
+function entangle(gn, a) {
+  a.dead = true; S.harm[a.t] = S.t; S.detritus += massOf(SPECIES[a.t]);
+  gn.kills++; if (gn.held.length < 6) gn.held.push({ t: a.t, dx: a.x - gn.x, dy: a.y - gn.y, ang: a.ang });
+  S.effects.push({ x: a.x, y: a.y, t: 0, kind: 1 });
+  const g = S.game;
+  if (g.on && !g.over) { g.ghostKills++; if (RUN_PROTECTED[a.t]) g.ghostProt++; }
 }
 
 function spawnMany(t, x, y, n) {
@@ -598,7 +635,7 @@ function waterQuality() { return 1 - Math.min(1, S.avgPoll / 0.2); }
 const demandAt = m => RUN.Q_BASE + RUN.Q_STEP * m;
 function startRun() { // call right after resetWorld()
   S.game = { on: true, over: false, minute: 0, haul: 0, mins: [], streak: 0, bankrupt: false, bycatch: 0,
-    company: 0, companyProt: 0, companyTrips: 0, sendCompany: false, fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
+    company: 0, companyProt: 0, companyTrips: 0, sendCompany: false, ghostKills: 0, ghostProt: 0, fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
   S.temp = RUN.TEMP_START;
   log('The fleet needs ' + demandAt(0) + ' in catch this minute, and more every minute after.', 'warn');
 }
@@ -642,7 +679,7 @@ function runScore() {
   const met = g.mins.filter(m => m.ok).length, delivered = g.fish + g.dumped + g.ballast;
   const quotaTotal = g.mins.reduce((a, m) => a + m.demand, 0);
   return { score, parts, quota, bio, water, lost, recovered, met, minutes: g.mins.length, delivered, quotaTotal,
-    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
+    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, ghostKills: g.ghostKills, ghostProt: g.ghostProt, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
 }
 function verdict(quota, lost, bio) {
   if (quota >= 0.9 && lost === 0 && bio >= 0.85) return 'The fleet was fed and the ocean held. That is rarer than it sounds.';
