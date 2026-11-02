@@ -1,0 +1,7 @@
+{
+  "name": "deep-tide-tools",
+  "private": true,
+  "description": "Test tooling for Deep Tide. The game itself has no build and no dependencies.",
+  "scripts": { "smoke": "node smoke.js" },
+  "dependencies": { "playwright-core": "1.56.1" }
+}
