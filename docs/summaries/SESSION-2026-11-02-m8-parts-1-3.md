@@ -23,8 +23,10 @@
   - its floor scars fired the 'scar' tip;
   - a net lost below the reef surface stayed inside the coral.
   Two design points are left open:
-  - [ ] Scarred reef still attracts fleeing fish (sim.js "dive for cover" checks only S.reef.dead) though it no longer shelters them. Scale the pull by (1 - scarAt(x))?
-  - [ ] The plan said scarred floor reduces upwelling; stepNutrients does not use S.scar. Not built. Decide if it is worth the balance re-check.
+  - [x] Owner: scarred reef stops attracting fleeing fish. Built: the dive-for-cover pull scales with 1 - scar where the fish would hide.
+  - [x] Owner: scars reduce nutrients. Built: upwelling loses SCAR.nut (0.6) x the mean scar over the floor, for good.
+    Two bottom trawls: upwelling averages 0.79 of normal over 600-1500 s (low 0.64), against 0.98 (low 0.81) without the effect.
+    Bottom scenario, 30 runs, on vs off: grazer recovery 166 vs 145 s, shark 195 vs 156 s. Bots unchanged within noise (steward 39.4).
 - [ ] Score shape (plan "Open"): re-measure the steward and the verdict lines after part 5.
 - [ ] Phone toolbar: part 4 adds a button and a toggle. Check 390 px.
 

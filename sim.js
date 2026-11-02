@@ -37,8 +37,11 @@ const inRefuge = (x, y) => x < REFUGE.x1 && y > REFUGE.y0;
 // (scene.js draws it from here). A trawl whose net reaches it drags the bottom.
 const bedAt = x => 772 + 200 * smoothstep(0.3, 0.58, x / WW) + Math.sin(x * 0.013) * 7 + Math.sin(x * 0.047) * 3;
 // ---- M8 bottom-trawl damage: a trawl net dragged over the floor scars it (S.scar, one value per GC-wide column, 0..1).
-// Scarred reef shelters nothing (the refuge's catch cut scales with 1 - scar), and scars heal slowly (half-life SCAR.half s).
-const SCAR = { on: true, hit: 0.6, reach: 40, half: 480 }; // hit: scar added by one full-contact pass; reach: px of net below the bed for full contact
+// Scarred reef shelters nothing (the refuge's catch cut scales with 1 - scar) and draws no fleeing fish (the dive for cover
+// scales with 1 - scar where they would hide). Scarred floor recycles less: the bottom life that turns detritus back into
+// nutrients is gone, so a share SCAR.nut x (mean scar over the floor) of what wells up is lost for good. Scars heal slowly
+// (half-life SCAR.half s). An untouched floor has scar 0 everywhere, so none of this changes an untouched ocean.
+const SCAR = { on: true, hit: 0.6, reach: 40, half: 480, nut: 0.6, cover: 1 }; // hit: scar added by one full-contact pass; reach: px of net below the bed for full contact
 // ---- M8 ghost nets: a trawl pass loses part of its net with chance GHOST.lose. The lost net drifts with the current and sinks
 // to the floor, and keeps fishing: any animal that swims into it is entangled (chance per second, higher for the big slow ones).
 // It frays and stops fishing over GHOST.life s. Its kills are harm (S.harm) but never catch; the run counts them for the end screen.
@@ -174,7 +177,7 @@ function resetWorld() {
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
   // start at the steady state of an untouched ocean: no transient while the nutrient pools fill up
-  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.ghosts = []; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
+  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.scarMean = 0; S.ghosts = []; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
   for (const s of SPECIES) {
     for (let i = 0; i < (s.start || 0); i++) {
       const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
@@ -269,7 +272,8 @@ function updMobile(a, dt) {
     dx = a.x - thr.x; dy = a.y - thr.y; mul = s.flee.burst; a.e -= s.flee.cost * dt; wander = false;
     if (ALIVE.refuge && s.school && S.reef.dead < 0.9 && a.x < REFUGE.x1 + 260 && a.y > REFUGE.y0 - 260) { // close to a living reef: dive for cover
       const m0 = Math.hypot(dx, dy) || 1, rx = Math.min(REFUGE.x1 - 60, a.x) - a.x, ry = Math.max(REFUGE.y0 + 60, a.y) - a.y, rm = Math.hypot(rx, ry) || 1;
-      dx = dx / m0 + rx / rm * 0.8; dy = dy / m0 + ry / rm * 0.8;
+      const pull = 0.8 * (1 - SCAR.cover * scarAt(a.x + rx)); // scarred coral hides nothing, so it draws no one
+      dx = dx / m0 + rx / rm * pull; dy = dy / m0 + ry / rm * pull;
     }
     // cornered: an escape that points into a wall turns along it instead, so the animal bolts sideways rather than
     // pressing itself against the edge. Without this a shark could hold a hunter on a side wall for 15 s and more
@@ -414,13 +418,15 @@ function stepReef(dt) {
 }
 function stepScar(dt) {
   const k = Math.min(1, dt * Math.LN2 / SCAR.half);
-  for (let c = 0; c < GCOLS; c++) if (S.scar[c] > 0) S.scar[c] = S.scar[c] < 1e-3 ? 0 : S.scar[c] * (1 - k);
+  let sum = 0;
+  for (let c = 0; c < GCOLS; c++) if (S.scar[c] > 0) { S.scar[c] = S.scar[c] < 1e-3 ? 0 : S.scar[c] * (1 - k); sum += S.scar[c]; }
+  S.scarMean = sum / GCOLS;
 }
 // Nutrients: detritus settles on the seabed (NUT_SINK s), the seabed wells up again (NUT_RISE s). S.upwell is that flux.
 function stepNutrients(dt) {
   if (dt <= 0) return;
   const sink = S.detritus * Math.min(1, dt / NUT_SINK), rise = S.seabed * Math.min(1, dt / NUT_RISE);
-  S.detritus -= sink; S.seabed += sink - rise; S.upwell = rise / dt;
+  S.detritus -= sink; S.seabed += sink - rise; S.upwell = rise * (1 - SCAR.nut * (S.scarMean || 0)) / dt; // scarred floor: the rest is lost
   S.sinkFlux = sink / dt; // what settles out of the sunlit layer: deep.js feeds the deep with it (read only)
 }
 
