@@ -59,6 +59,7 @@ async function desktop(b) {
   const bt = await toPage(p, 800, 790); await p.mouse.click(bt.x, bt.y); await wait(p, 2500);
   await p.evaluate(() => { loseNet(1000, 300); S.ghosts[0].held.push({ t: GRAZER, dx: 5, dy: 3, ang: 1 }); }); await wait(p, 400);
   check('a lost net drifts and is drawn', await count(p, () => S.ghosts.length >= 1 && S.ghosts[0].age > 0));
+  check('a net lost inside the reef rests on top of it', await count(p, () => { loseNet(300, 820); step(1 / 30); const g = S.ghosts[S.ghosts.length - 1]; return g.y <= bedAt(g.x) - 8 + 1e-6; }));
   check('a trawl set near the floor scars the reef', await count(p, () => S.scar[2] > 0.3), 'scar ' + (await count(p, () => S.scar[2])).toFixed(2));
 
   // count what the net takes (netAt is a global function declaration, so render.js picks up the wrapper)
@@ -119,8 +120,12 @@ async function desktop(b) {
   await p.click('#menuBtn'); await p.click('[data-mode=run]'); await wait(p, 500);
   check('run: HUD shows', await p.isVisible('#hud'));
   check('run: stock tool is locked', await p.isDisabled('[data-tool=stock]'));
-  await p.evaluate(() => { for (let i = 0; i < 30 * 61; i++) step(1 / 30); }); // a first minute with no catch
+  await p.evaluate(() => { setHints(true); for (let i = 0; i < 30 * 61; i++) step(1 / 30); }); // a first minute with no catch
   check('run: a short minute sends head office\'s trawler', await count(p, () => S.trawlers.some(t => t.company) && S.game.companyTrips === 1));
+  await p.waitForFunction(() => !S.trawlers.some(t => t.company), null, { timeout: 15000 }).catch(() => {}); await wait(p, 500);
+  check('run: head office\'s pass raises none of the player\'s trawl tips', await count(p, () => !['trawl', 'prot', 'scar'].some(id => C.shown.has(id))),
+    await count(p, () => [...C.shown].join(',')));
+  await p.evaluate(() => setHints(false));
   await p.evaluate(() => { for (let i = 0; i < 30 * 536; i++) step(1 / 30); }); // sim to just before the end, then let the page finish it
   await p.waitForFunction(() => !document.getElementById('end').hidden, null, { timeout: 15000 }).catch(() => {});
   check('run: end screen appears after 10:00', await p.isVisible('#end'));

@@ -543,7 +543,7 @@ function stepTools(dt) {
     if (SCAR.on) for (let c = Math.max(0, (tr.x / GC) | 0); c <= Math.min(GCOLS - 1, (nx / GC) | 0); c++) {
       if (tr.scarred[c]) continue;
       const contact = (tr.y + tr.band - bedAt((c + 0.5) * GC)) / SCAR.reach;
-      if (contact > 0) { tr.scarred[c] = 1; S.scar[c] = Math.min(1, S.scar[c] + SCAR.hit * Math.min(1, contact)); tr.bottom = true; }
+      if (contact > 0) { tr.scarred[c] = 1; S.scar[c] = Math.min(1, S.scar[c] + SCAR.hit * Math.min(1, contact)); tr.bottom = true; if (!tr.company && S.scar[c] > 0.3) S.flags.scarTip = true; }
     }
     tr.x = nx;
   }
@@ -558,9 +558,9 @@ function loseNet(x, y) {
 function stepGhosts(dt) {
   for (const gn of S.ghosts) {
     gn.age += dt;
-    const floor = Math.min(WH - 6, bedAt(gn.x) - 8);
     gn.x = Math.max(GHOST.w, Math.min(WW - GHOST.w, gn.x + gn.vx * dt));
-    if (gn.y < floor) gn.y = Math.min(floor, gn.y + 1.5 * dt); // sinks slowly, then lies on the bottom
+    const floor = Math.min(WH - 6, bedAt(gn.x) - 8);
+    gn.y = Math.min(floor, gn.y + 1.5 * dt); // sinks slowly, then lies on the bottom (over the shelf it rests on the reef, never inside it)
     const fray = 1 - gn.age / GHOST.life;
     if (fray <= 0) continue;
     const x0 = Math.max(0, ((gn.x - GHOST.w) / HC) | 0), x1 = Math.min(HCOLS - 1, ((gn.x + GHOST.w) / HC) | 0);

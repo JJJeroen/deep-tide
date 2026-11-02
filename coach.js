@@ -2,7 +2,7 @@
 // - Learn mode: five fixed steps (watch, net, trawler, quota, ballast). Each waits for the player to do the thing, then
 //   says what that just caused. A fixed list on purpose, not a scripting engine.
 // - Hints (any mode, switchable): one-off tips at the moment they matter, explaining consequences rather than the best move.
-// Hooks called from elsewhere: coachReset(mode) from newGame, coachCatch(sp, trawler) from collectCatch,
+// Hooks called from elsewhere: coachReset(mode) from newGame, coachCatch(sp, trawler, company) from collectCatch,
 // coachSaw(t) from drawInspect, coachTick() from updateUI.
 const coachEl = document.getElementById('coach');
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
@@ -57,7 +57,8 @@ function tip(id, text) {
   if (!hintsOn || C.shown.has(id)) return;
   C.shown.add(id); C.queue.push(text);
 }
-function coachCatch(sp, trawler) {
+function coachCatch(sp, trawler, company) {
+  if (company) return; // head office's trawler: not the player's catch, not their bycatch
   const L = C.L;
   if (L) {
     if (!trawler) L.netted[sp]++;
@@ -84,7 +85,7 @@ function hintChecks() {
   if (ALIVE.nutrients && S.t > 90 && S.upwell < NUT_U0 * 0.8) tip('nutrients', 'Less is drifting down than usual. Dead animals sink, rot on the seabed and well up again as food for the plankton; what the nets take never comes back. Watch the plankton grow slower.');
   if (ALIVE.refuge && S.reef.dead > 0.3) tip('reefdead', 'The reef is dying. Small fish hide among the coral (bottom left) from hunters; a dead reef hides nothing.');
   if (S.ghosts.some(gn => gn.kills > 0)) tip('ghost', 'A lost net is still fishing. Nobody will haul it up: what swims into it, mostly the big slow animals, just dies there. It frays apart in a few minutes. Real ghost nets drift for years.');
-  if (S.scar.some(v => v > 0.3)) tip('scar', 'That trawl dragged along the floor. The net flattens the reef and stirs up silt: broken coral hides no fish, and it takes many minutes to grow back. Set the net higher to fish the open water instead.');
+  if (S.flags.scarTip) tip('scar', 'That trawl dragged along the floor. The net flattens the reef and stirs up silt: broken coral hides no fish, and it takes many minutes to grow back. Set the net higher to fish the open water instead.');
   if (g.on && g.ballast > 0) tip('ballast', '+' + RUN.BALLAST_PAY + ' toward the quota. The lionfish that came with it will hunt your grazers for the rest of the season.');
 }
 
@@ -105,7 +106,7 @@ function setHints(on) {
 function coachTick() {
   if (!C.mode || !menuEl.hidden || !endEl.hidden) { coachEl.hidden = true; return; }
   // a trawler that has left the screen is a finished pass
-  for (const tr of S.trawlers) C.trawls.add(tr);
+  for (const tr of S.trawlers) if (!tr.company) C.trawls.add(tr);
   for (const tr of C.trawls) if (!S.trawlers.includes(tr)) { C.trawls.delete(tr); if (C.L) { C.L.trawlsDone++; C.L.lastTrawl = tr; } if (C.mode !== 'learn') tip('trawl', trawlSummary(tr) + ' Everything in the band dies, young fish and bycatch too.'); }
   const L = C.L;
   if (C.mode === 'learn' && L.step < LEARN.length && !L.after && LEARN[L.step].done(L)) L.after = true;

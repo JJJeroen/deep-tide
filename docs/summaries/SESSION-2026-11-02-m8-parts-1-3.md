@@ -18,7 +18,13 @@
 - **Smoke test**: 29 checks (adds bottom scar, ghost net, head office's trawler).
 
 ## Open Questions
-- [ ] A fresh-context code review of 11d149f..8125097 was started at the end of this session; act on its findings first (see the git log for a fix commit if one landed).
+- Fresh-context review of 11d149f..8125097: no sim bugs (resets, double counts, scar bounds, company timing, idle ocean all checked). It found three coach and ghost bugs, now fixed in the commit after this handoff:
+  - head office's catch fired the player's 'prot' and 'trawl' tips;
+  - its floor scars fired the 'scar' tip;
+  - a net lost below the reef surface stayed inside the coral.
+  Two design points are left open:
+  - [ ] Scarred reef still attracts fleeing fish (sim.js "dive for cover" checks only S.reef.dead) though it no longer shelters them. Scale the pull by (1 - scarAt(x))?
+  - [ ] The plan said scarred floor reduces upwelling; stepNutrients does not use S.scar. Not built. Decide if it is worth the balance re-check.
 - [ ] Score shape (plan "Open"): re-measure the steward and the verdict lines after part 5.
 - [ ] Phone toolbar: part 4 adds a button and a toggle. Check 390 px.
 

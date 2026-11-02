@@ -138,7 +138,7 @@ function collectCatch() {
     // e.t is the sim time since the catch (it includes the catching step), and the trawler moved on since then:
     // stepTools kills in [x - 10, x + speed*dt + 10] around the position x it had at that step, i.e. tr.x - speed * e.t
     const tr = S.trawlers.find(tr => { const tx = tr.x - tr.speed * e.t; return e.x >= tx - 15 && e.x <= tx + tr.speed / 30 + 15 && Math.abs(e.y - tr.y) <= tr.band + 1; });
-    if (typeof coachCatch === 'function') coachCatch(e.sp, !!tr);
+    if (typeof coachCatch === 'function') coachCatch(e.sp, !!tr, !!(tr && tr.company));
     if (tr) {
       tr.catch = (tr.catch || 0) + 1; (tr.bySp = tr.bySp || {})[e.sp] = (tr.bySp[e.sp] || 0) + 1;
       if (RUN_PROTECTED[e.sp]) tr.prot = (tr.prot || 0) + 1; else tr.value = (tr.value || 0) + RUN_VAL[e.sp];
