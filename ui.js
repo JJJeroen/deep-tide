@@ -6,7 +6,8 @@ for (const sp of SPECIES) {
   if (sp.invasive) r.style.display = 'none';
   rowsEl.appendChild(r);
 }
-const stockSel = document.getElementById('stockSel');
+const stockSel = document.getElementById('stockSel'), pollSel = document.getElementById('pollSel');
+pollSel.value = POLL_KIND;
 stockSel.innerHTML = '';
 for (const sp of NATIVE) { const o = document.createElement('option'); o.value = sp.i; o.textContent = sp.name; stockSel.appendChild(o); }
 stockSel.value = GRAZER;
@@ -17,7 +18,8 @@ const HINTS = {
   watch: 'Just watch. Sit with it for a minute before you touch anything. Point at an animal to see how it is doing.',
   net: 'Hold and drag to net fish. Plankton slips through.',
   trawl: 'Click a depth. A trawler sweeps the whole width and takes everything in its path.',
-  pollute: 'Hold and paint. Pollution spreads and fades slowly.',
+  pollute: 'Hold and paint plastic waste. It is toxic, spreads, and fades slowly.',
+  runoff: 'Hold and paint farm runoff: fertiliser. Algae bloom on it, then die and rot, and the rot uses up the oxygen.',
   invader: 'Click to release a few invaders. Nothing here has ever met them.',
   stock: 'Click to add the selected species. Rebuild from the bottom: plankton, then grazers, then what eats them.',
   reserve: 'Drag across the water to close a strip to all fishing (one at a time). Click inside it to lift it again.',
@@ -28,6 +30,7 @@ const HINTS_RUN = {
   net: 'Hold and drag to net. Picky, slow, and you choose what comes up. Protected animals in the net still die.',
   trawl: 'Click a depth. Fast, a full hold in seconds, and everything in the band dies: bycatch, young fish, the lot.',
   pollute: 'Hold to dump waste: a disposal contract pays ' + RUN.DUMP_PAY + ' toward the quota per second. The water remembers.',
+  runoff: 'Hold to let a farm drain its fertiliser into the sea: it pays ' + RUN.RUNOFF_PAY + ' toward the quota per second. The algae it feeds will suffocate the water.',
   invader: 'Click to let a ship skip ballast treatment: +' + RUN.BALLAST_PAY + ' toward the quota, one ship a minute. What rides in the ballast stays.',
   stock: 'Locked in this run. Nobody is coming to restock it.',
   reserve: 'Drag across the water to close a strip to all fishing. It costs nothing but the fish inside it; what grows up there spills over.',
@@ -51,7 +54,8 @@ function newGame(m) {
   tempEl.parentElement.title = run ? 'The water warms on its own in this run' : '';
   document.querySelector('[data-tool=stock]').disabled = run; stockSel.disabled = run;
   document.querySelector('[data-tool=stock]').title = run ? 'Locked in the Anthropocene run' : '';
-  document.querySelector('[data-tool=pollute]').textContent = run ? 'Dump waste' : 'Pollute';
+  document.querySelector('[data-tool=pollute]').textContent = run ? 'Dump' : 'Pollute';
+  pollSel.options[0].textContent = run ? 'waste' : 'plastic'; pollSel.options[1].textContent = run ? 'farm runoff' : 'runoff';
   document.querySelector('[data-tool=invader]').textContent = run ? 'Skip ballast' : 'Release invader';
   document.getElementById('tagline').textContent = run ? 'Anthropocene run' : m === 'learn' ? 'Learn to play' : 'A small ocean that runs without you.';
   document.getElementById('hudDur').textContent = '/ ' + fmtClock(RUN.DUR);
@@ -104,9 +108,9 @@ function showEnd() {
     <div class="bigscore">${r.score}</div><p style="margin-top:0">points</p>
     <table>
       <tr><td>Catch delivered</td><td>${Math.round(r.delivered)} of ${r.quotaTotal} demanded · quota met ${r.met} of ${r.minutes} minutes</td></tr>
-      <tr><td>Where it came from</td><td>fish ${Math.round(r.fish)} · waste contracts ${Math.round(r.dumped)} · ballast ${Math.round(r.ballast)}</td></tr>
+      <tr><td>Where it came from</td><td>fish ${Math.round(r.fish)} · waste contracts ${Math.round(r.dumped)}${r.runoff ? ' · farm runoff ' + Math.round(r.runoff) : ''} · ballast ${Math.round(r.ballast)}</td></tr>
       <tr><td>Biodiversity</td><td>${pct(r.bio)}</td></tr>
-      <tr><td>Water quality</td><td>${pct(r.water)}</td></tr>
+      <tr><td>Water quality</td><td>${pct(r.water)}${r.hypPeak > 0.01 ? ' · at worst ' + pct(r.hypPeak) + ' of the water was a dead zone' : ''}</td></tr>
       <tr><td>Gone at the end</td><td>${lost}</td></tr>
       <tr><td>Lost, then came back</td><td>${list(r.recovered)}</td></tr>
       <tr><td>Protected animals caught</td><td>${r.bycatch}</td></tr>
@@ -181,10 +185,13 @@ function setTool(t) {
   if (t === 'stock' && mode === 'run') return; // locked in the scored run
   tool = t;
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  document.getElementById('hint').textContent = (mode === 'run' ? HINTS_RUN : HINTS)[t];
+  document.getElementById('hint').textContent = (mode === 'run' ? HINTS_RUN : HINTS)[t === 'pollute' && POLL_KIND === 'runoff' ? 'runoff' : t];
 }
+function setPollKind(k) { POLL_KIND = k; pollSel.value = k; setTool('pollute'); }
 document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
-document.getElementById('stockSel').addEventListener('change', () => setTool('stock'));
+// (blur after a pick, so tool shortcuts don't go to the select's type-ahead)
+document.getElementById('stockSel').addEventListener('change', () => { setTool('stock'); stockSel.blur(); });
+pollSel.addEventListener('change', () => { setPollKind(pollSel.value); pollSel.blur(); });
 document.getElementById('exclBtn').addEventListener('click', () => { setExcluder(!EXCLUDER.on); if (EXCLUDER.on && tool !== 'trawl') setTool('trawl'); });
 tempEl.addEventListener('input', e => { if (mode !== 'run') S.temp = e.target.value / 100; });
 document.getElementById('pause').addEventListener('click', e => { if (S.game.over) return; paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
@@ -278,7 +285,8 @@ addEventListener('keydown', e => {
   if (/^(SELECT|INPUT)$/.test(e.target.tagName) || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
   if (!menuEl.hidden || !endEl.hidden) return; // the mode picker / end screen is up
   const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock', a: 'reserve' }[e.key.toLowerCase()];
-  if (k) setTool(k);
+  if (k === 'pollute' && tool === 'pollute') { if (!e.repeat) setPollKind(POLL_KIND === 'plastic' ? 'runoff' : 'plastic'); } // P again switches the kind (not on key repeat)
+  else if (k) setTool(k);
   else if (e.key.toLowerCase() === 'e' && !e.repeat) document.getElementById('exclBtn').click(); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
   else if (e.key.toLowerCase() === 'h') setHints(!hintsOn);
   else if (e.key.toLowerCase() === 'm' && !e.repeat) setSound(!SOUND.on, true);

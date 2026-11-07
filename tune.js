@@ -1,7 +1,8 @@
 // Headless tuning harness for Deep Tide. Runs sim.js (the whole simulation, no DOM) in node.
 //   node tune.js [seconds=1800] [runs=10] [scenario] [rescue=on|off]
 //   scenarios: idle | cold | hot              (untouched ocean at warmth 0.5 / 0.2 / 0.75)
-//              pollute | trawl | bottom | ghost | invade | net (player harm at HARM_T seconds, then hands off; warmth 0.5)
+//              pollute | runoff | runoffhot | trawl | bottom | ghost | invade | net (player harm at HARM_T seconds, then hands off;
+//              warmth 0.5, runoffhot 0.66)
 //              trawlmpa | bottommpa (the same harm, with a protected area over the reef third from t = 0: what does it save?)
 //              anthro (scored run, played by bots: see BOT_LIB below; bot=name|all)
 //   rescue=on|off overrides RESCUE_ENABLED from sim.js for this run (default: whatever sim.js says).
@@ -20,6 +21,16 @@ const HARMS = {
   pollute: { at: HARM_T, dur: 10, perStep: (ctx, t) => {
     const f = t / 10, y = f < 0.5 ? 220 : 420, x = ((f * 2) % 1) * 1600;
     vm.runInContext(`addPollution(${x}, ${y}, 80, 0.08)`, ctx);
+  } },
+  // M8.5: the same two sweeps with farm runoff instead of plastic (dumpAt with kind 'runoff', as the UI does)
+  runoff: { at: HARM_T, dur: 10, perStep: (ctx, t) => {
+    const f = t / 10, y = f < 0.5 ? 220 : 420, x = ((f * 2) % 1) * 1600;
+    vm.runInContext(`dumpAt(${x}, ${y}, 1 / 30, 'runoff')`, ctx);
+  } },
+  // the runoff sweep in warm water (warmth 0.66, where the run ends): the squeeze should be worse
+  runoffhot: { temp: 0.66, at: HARM_T, dur: 10, perStep: (ctx, t) => {
+    const f = t / 10, y = f < 0.5 ? 220 : 420, x = ((f * 2) % 1) * 1600;
+    vm.runInContext(`dumpAt(${x}, ${y}, 1 / 30, 'runoff')`, ctx);
   } },
   // five trawls sweeping every depth band, twice
   trawl: { at: HARM_T, once: ctx => vm.runInContext('for (const y of [90, 270, 450, 630, 810]) startTrawl(y);', ctx),
@@ -68,11 +79,11 @@ function run(seconds, scenario, rescue, patch) {
   for (let i = 0; i < N; i++) { T.births[i] = 0; T.arrivals[i] = 0; T.starved[i] = 0; T.old[i] = 0; T.eaten[i] = new Array(N).fill(0); }
   if (rescue !== undefined) vm.runInContext(`RESCUE_ENABLED = ${rescue};`, ctx);
   if (patch) vm.runInContext(patch, ctx);
-  vm.runInContext(`resetWorld(); S.temp = ${scenario === 'cold' ? 0.2 : scenario === 'hot' ? 0.75 : 0.5};`, ctx);
   const harm = HARMS[scenario];
+  vm.runInContext(`resetWorld(); S.temp = ${scenario === 'cold' ? 0.2 : scenario === 'hot' ? 0.75 : harm && harm.temp || 0.5};`, ctx);
   if (harm && harm.setup) vm.runInContext(harm.setup, ctx);
   const STEP = new vm.Script('step(1/30)');
-  const steps = Math.round(seconds * 30), zero = new Array(N).fill(0), sum = new Array(N).fill(0), series = [];
+  const steps = Math.round(seconds * 30), zero = new Array(N).fill(0), sum = new Array(N).fill(0), series = [], wq = [];
   let samples = 0;
   for (let k = 0; k < steps; k++) {
     const t = k / 30;
@@ -84,7 +95,7 @@ function run(seconds, scenario, rescue, patch) {
     STEP.runInContext(ctx);
     if (k % 30 === 0) {
       const c = vm.runInContext('S.counts', ctx).slice();
-      samples++; series.push(c);
+      samples++; series.push(c); wq.push(vm.runInContext('[waterQuality(), S.hypFrac, S.bloomN]', ctx));
       for (let i = 0; i < N; i++) { if (c[i] === 0) zero[i]++; sum[i] += c[i]; }
     }
   }
@@ -112,14 +123,18 @@ function run(seconds, scenario, rescue, patch) {
       return { preMean, low, wiped, rec: low >= preMean * 0.5 ? 0 : rec };
     });
   }
-  return { names, native, zero: zero.map(z => z / samples), mean: sum.map(s => s / samples), max, atCap, cv, T, harmStats, end: series[series.length - 1], series: process.env.TUNE_TRACE ? series : null,
+  // water after the harm: lowest quality, peak share of hypoxic water, seconds with any dead zone (> 1% of cells), peak bloom
+  const wqAfter = harm ? wq.slice(harm.at) : wq;
+  const water = { low: Math.min(...wqAfter.map(w => w[0])), hyp: Math.max(...wqAfter.map(w => w[1])), hypS: wqAfter.filter(w => w[1] > 0.01).length,
+    bloom: Math.max(...wqAfter.map(w => w[2])), back: (() => { const lo = wqAfter.reduce((m, w, j) => w[0] < wqAfter[m][0] ? j : m, 0); return wqAfter.findIndex((w, j) => j > lo && w[0] > 0.95 && w[1] === 0); })() };
+  return { water, names, native, zero: zero.map(z => z / samples), mean: sum.map(s => s / samples), max, atCap, cv, T, harmStats, end: series[series.length - 1], series: process.env.TUNE_TRACE ? series : null,
     zeroBy: names.map((_, i) => Array.from({ length: Math.ceil(series.length / 300) }, (_, b) => series.slice(b * 300, b * 300 + 300).filter(c => c[i] === 0).length)) };
 }
 
 // ---- scenario `anthro`: the scored "Anthropocene run", played by scripted bots. Each bot acts like a player would through
 // the UI: a net click = one netAt(r 50) on one step, a trawl = startTrawl(y), dumping = dumpAt() each step while held,
 // ballast = releaseInvaders() once a ship is in port.
-//   node tune.js 0 10 anthro [bot=steward|light|measured|grazers|careful|greedy|plunder|ballast1|dumper|industry|reserve|excluder|tidy|all]   (seconds are fixed by RUN.DUR)
+//   node tune.js 0 10 anthro [bot=steward|light|measured|grazers|careful|greedy|plunder|ballast1|dumper|farmer|industry|reserve|excluder|tidy|all]   (seconds are fixed by RUN.DUR)
 const BOT_LIB = `
 var BOT = { last: {} };
 function every(key, s) { if (S.t - (BOT.last[key] ?? -1e9) >= s) { BOT.last[key] = S.t; return true; } return false; }
@@ -168,6 +183,8 @@ const BOTS = {
   ballast1: () => { if (S.t < 1) releaseInvaders(800, 300); BOTS.measured(); },
   // the measured player who tops up with waste contracts: dumps while still short in the last 15 s of a minute
   dumper: () => { if (short() && S.t % RUN.MINUTE > 45) dumpAt(800, 200, 1 / 30); else BOTS.measured(); },
+  // M8.5: the dumper's twin with farm runoff instead of waste (same pay, a different poison)
+  farmer: () => { if (short() && S.t % RUN.MINUTE > 45) dumpAt(800, 200, 1 / 30, 'runoff'); else BOTS.measured(); },
   // the measured player taking every industry payment: every ballast ship plus the waste top-ups
   industry: () => { releaseInvaders(800, 300); BOTS.dumper(); },
   // M8.4: the measured player who first closes the reef third (x 0-533) to all fishing
@@ -178,7 +195,7 @@ const BOTS = {
   tidy: () => { for (const gn of S.ghosts.slice()) retrieveGhost(gn); BOTS.greedy(); },
 };
 `;
-const ANTHRO_BOTS = ['steward', 'light', 'measured', 'grazers', 'careful', 'greedy', 'plunder', 'ballast1', 'dumper', 'industry', 'reserve', 'excluder', 'tidy'];
+const ANTHRO_BOTS = ['steward', 'light', 'measured', 'grazers', 'careful', 'greedy', 'plunder', 'ballast1', 'dumper', 'farmer', 'industry', 'reserve', 'excluder', 'tidy'];
 
 function runAnthro(bot, rescue, patch) {
   const z = () => new Array(32).fill(0); // instrumentation sink (unused here)
@@ -264,6 +281,8 @@ function report(R, seconds, runs, scenario, rescue, patch) {
       const mrec = recd.length ? recd.reduce((a, h) => a + h.rec, 0) / recd.length : NaN;
       console.log(`  ${names[i].padEnd(11)} ${(hs.reduce((a, h) => a + h.preMean, 0) / hs.length).toFixed(1).padStart(7)} ${(hs.reduce((a, h) => a + h.low, 0) / hs.length).toFixed(1).padStart(9)} ${String(hs.filter(h => h.wiped).length).padStart(8)}/${hs.length}   ${isNaN(mrec) ? '   -' : mrec.toFixed(0).padStart(4)}s (${never} never)`);
     }
+    const W = R.map(x => x.water), wm = f => W.reduce((a, w) => a + f(w), 0) / W.length;
+    if (/pollute|runoff/.test(scenario) && seconds > HARM_T) console.log(`  water: low ${(wm(w => w.low) * 100).toFixed(0)}%  dead zone peak ${(wm(w => w.hyp) * 100).toFixed(1)}% of cells, ${wm(w => w.hypS).toFixed(0)} s > 1%  (runs with one: ${W.filter(w => w.hyp > 0.01).length}/${W.length})  bloom peak ${wm(w => w.bloom).toFixed(0)}  water back > 95% (s after the harm): ${(W.filter(w => w.back >= 0).reduce((a, w) => a + w.back, 0) / Math.max(1, W.filter(w => w.back >= 0).length)).toFixed(0)} s (${W.filter(w => w.back < 0).length} never)`);
     const inv = names.indexOf('invader');
     if (inv >= 0) console.log(`  invaders: mean ${avg(x => x.mean[inv]).toFixed(1)}, still present at the end in ${R.filter(x => x.end[inv] > 0).length}/${R.length} runs`);
   } else console.log(pass ? 'M1 ACCEPTANCE: PASS' : 'M1 ACCEPTANCE: not yet');
@@ -271,15 +290,15 @@ function report(R, seconds, runs, scenario, rescue, patch) {
 
 function reportAnthro(out, bots, runs, patch) {
   console.log(`scenario=anthro x ${runs} runs per bot${patch ? '  patch: ' + patch : ''}`);
-  console.log('bot         score  (sd)   min  max | quota%  met/10  delivered  fish  dump ballast | bio%  water%  lost  recov  bycatch  bankrupt | company trips  ghost kills');
+  console.log('bot         score  (sd)   min  max | quota%  met/10  delivered  fish  dump runoff ballast | bio%  water%  lost  recov  bycatch  bankrupt | company trips  ghost kills  dead zone%');
   for (const b of bots) {
     const R = out[b], avg = f => R.reduce((a, x) => a + f(x), 0) / R.length;
     const m = avg(x => x.score), sd = Math.sqrt(avg(x => (x.score - m) ** 2));
     const lostNames = {};
     for (const x of R) for (const n of x.lost) lostNames[n] = (lostNames[n] || 0) + 1;
     console.log(`${b.padEnd(10)} ${m.toFixed(1).padStart(6)} ${('(' + sd.toFixed(1) + ')').padStart(6)} ${String(Math.min(...R.map(x => x.score))).padStart(5)} ${String(Math.max(...R.map(x => x.score))).padStart(4)} |` +
-      ` ${(avg(x => x.quota) * 100).toFixed(0).padStart(6)} ${avg(x => x.met).toFixed(1).padStart(7)} ${avg(x => x.delivered).toFixed(0).padStart(10)} ${avg(x => x.fish).toFixed(0).padStart(5)} ${avg(x => x.dumped).toFixed(0).padStart(5)} ${avg(x => x.ballast).toFixed(0).padStart(7)} |` +
-      ` ${(avg(x => x.bio) * 100).toFixed(0).padStart(4)} ${(avg(x => x.water) * 100).toFixed(0).padStart(7)} ${avg(x => x.lost.length).toFixed(1).padStart(5)} ${avg(x => x.recovered.length).toFixed(1).padStart(6)} ${avg(x => x.bycatch).toFixed(1).padStart(8)} ${(R.filter(x => x.bankrupt).length + '/' + R.length).padStart(9)} | ${avg(x => x.companyTrips).toFixed(1).padStart(13)} ${avg(x => x.ghostKills).toFixed(1).padStart(12)}` +
+      ` ${(avg(x => x.quota) * 100).toFixed(0).padStart(6)} ${avg(x => x.met).toFixed(1).padStart(7)} ${avg(x => x.delivered).toFixed(0).padStart(10)} ${avg(x => x.fish).toFixed(0).padStart(5)} ${avg(x => x.dumped).toFixed(0).padStart(5)} ${avg(x => x.runoff).toFixed(0).padStart(6)} ${avg(x => x.ballast).toFixed(0).padStart(7)} |` +
+      ` ${(avg(x => x.bio) * 100).toFixed(0).padStart(4)} ${(avg(x => x.water) * 100).toFixed(0).padStart(7)} ${avg(x => x.lost.length).toFixed(1).padStart(5)} ${avg(x => x.recovered.length).toFixed(1).padStart(6)} ${avg(x => x.bycatch).toFixed(1).padStart(8)} ${(R.filter(x => x.bankrupt).length + '/' + R.length).padStart(9)} | ${avg(x => x.companyTrips).toFixed(1).padStart(13)} ${avg(x => x.ghostKills).toFixed(1).padStart(12)} ${(avg(x => x.hypPeak) * 100).toFixed(1).padStart(11)}` +
       (Object.keys(lostNames).length ? '   lost: ' + Object.entries(lostNames).map(([n, c]) => n + ' ' + c).join(', ') : ''));
     console.log(' '.repeat(11) + 'parts: ' + R[0].parts.map((p, i) => p.label.replace(/ \(.*/, '') + ' ' + avg(x => x.parts[i].pts).toFixed(1)).join(' | '));
   }

@@ -74,6 +74,10 @@ function hintChecks() {
   if (S.t > 12 && C.mode !== 'learn') tip('intro', 'Plankton feeds the grazers, grazers feed the hunters, hunters feed the sharks. Jellyfish and mantas filter plankton; turtles eat jellyfish. Point at any animal to see how it is doing.');
   if (S.peak[GRAZER] > 30 && S.counts[GRAZER] < 25) tip('grazers', 'Grazers are down to ' + S.counts[GRAZER] + '. Everything that hunts here eats grazers or eats what eats them. Their line in the panel shows where this is heading.');
   if (S.avgPoll > 0.02) tip('poll', 'Waste spreads, then fades slowly. Fish lose energy in it and plankton dies in it. Species that die out will not come back until the water is above 85% clean.');
+  if (S.avgNutr > 0.01) tip('runoff', 'Fertiliser off the fields. Algae grow fast on it, the bloom dies within a minute, and the rot sinks and uses up the oxygen in the water below. The worst of it comes later, not now.');
+  if (S.bloomN > 150) tip('algae', 'An algal bloom: the yellow-green specks. Grazers and jellyfish feast on it for now. When it dies it rots, and rot burns oxygen. Warm water holds less oxygen, so a warm sea suffocates sooner.');
+  if (S.hypFrac > 0.02) tip('deadzone', 'A dead zone: water with almost no oxygen left, the grey patch. Fish lose strength in it and swim for clearer water; whatever can\'t get out dies there. It clears as oxygen mixes down from the surface, slowest near the bottom.');
+  if (S.hypFrac > 0.02 && S.counts[JELLY] >= 25) tip('jellyzone', 'The jellyfish don\'t mind the dead zone: they need little oxygen, and everything that competes with them for plankton, or eats them, has left. Real coastal dead zones fill up with jellyfish the same way.');
   if (S.counts[INVADER] > 0) tip('inv', 'Invaders hunt grazers and jellyfish, and nothing here eats them. While they are around, lost species take much longer to return.');
   for (const s of NATIVE) if (s.recolonize && S.zero[s.i] && S.harmed[s.i])
     tip('lost' + s.i, s.name + ' are gone. If the water stays clean and cool and there is enough for them to eat, they drift back from the open ocean in ' + minutes(s.recolonize.after) + '.');

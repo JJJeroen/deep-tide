@@ -74,6 +74,28 @@ async function desktop(b) {
   await p.keyboard.press('p'); const po = await toPage(p, 600, 300);
   await p.mouse.move(po.x, po.y); await p.mouse.down(); await p.mouse.move(po.x + 120, po.y, { steps: 6 }); await wait(p, 300); await p.mouse.up();
   check('pollute tool fouls the water', await count(p, () => pollAt(600, 300) > 0 || pollAt(660, 300) > 0));
+  // M8.5: P again switches to runoff; runoff feeds a bloom whose rot leaves a dead zone; jellies don't mind it
+  await p.keyboard.press('p');
+  check('runoff: P again switches the kind', await count(p, () => POLL_KIND === 'runoff' && pollSel.value === 'runoff' && /fertiliser/.test(document.getElementById('hint').textContent)));
+  const ro = await toPage(p, 900, 250);
+  await p.mouse.move(ro.x, ro.y); await p.mouse.down(); await p.mouse.move(ro.x + 120, ro.y, { steps: 6 }); await wait(p, 300); await p.mouse.up();
+  check('runoff tool fertilises the water (not plastic)', await count(p, () => S.wqOn && S.nutr[pollIdx(900, 250)] + S.nutr[pollIdx(960, 250)] > 0.05 && pollAt(960, 250) < 0.01)); // (plastic from the check above diffuses everywhere a little)
+  check('runoff: bloom, then a dead zone', await count(p, () => {
+    for (let x = 0; x <= 1600; x += 40) for (const y of [220, 420]) for (let k = 0; k < 8; k++) addRunoff(x, y, RUNOFF.r, RUNOFF.amt);
+    let bloom = 0; for (let i = 0; i < 30 * 150; i++) { step(1 / 30); bloom = Math.max(bloom, S.bloomN); }
+    return bloom > 100 && S.hypFrac > 0.01 && waterQuality() < 0.9;
+  }), await count(p, () => 'dead zone ' + (S.hypFrac * 100).toFixed(1) + '%, water ' + Math.round(waterQuality() * 100) + '%'));
+  check('runoff: a grazer in the dead zone gasps, a jelly does not', await count(p, () => {
+    let i = 0; for (let k = 1; k < S.odef.length; k++) if (S.odef[k] > S.odef[i]) i = k;
+    const x = (i % GCOLS + 0.5) * GC, y = ((i / GCOLS | 0) + 0.5) * GC;
+    // the same animal on the same spot with the oxygen cost on and off; neighbours hidden, so nothing is eaten or fled from
+    const hash = S.hash; S.hash = hash.map(() => []);
+    const e = (t, cost) => { const c0 = OXY.cost; OXY.cost = cost; const a = makeAgent(t, x, y); a.e = 50; updMobile(a, 1); OXY.cost = c0; return a.e; };
+    const r = S.odef[i] > 0.7 && e(GRAZER, 0) - e(GRAZER, OXY.cost) > 1 && e(JELLY, 0) === e(JELLY, OXY.cost);
+    S.hash = hash; return r;
+  }));
+  await p.evaluate(() => { S.nutr.fill(0); S.rot.fill(0); S.odef.fill(0); S.wqOn = false; S.avgHyp = 0; S.hypFrac = 0; }); // the later checks need a living ocean
+  await p.keyboard.press('p'); // back to plastic for the rest of the test
 
   // released well above the trawl band (y 400): the trawler still sweeping there would net them within 300 ms
   await p.keyboard.press('i'); const iv = await toPage(p, 1200, 150); await p.mouse.click(iv.x, iv.y); await wait(p, 300);
@@ -148,6 +170,8 @@ async function desktop(b) {
   await p.click('#menuBtn'); await p.click('[data-mode=run]'); await wait(p, 500);
   check('run: HUD shows', await p.isVisible('#hud'));
   check('run: stock tool is locked', await p.isDisabled('[data-tool=stock]'));
+  check('run: pollute reads Dump, with waste and farm runoff', await count(p, () => document.querySelector('[data-tool=pollute]').textContent === 'Dump' && pollSel.options[1].textContent === 'farm runoff'));
+  check('run: a new game starts with clean, fully oxygenated water', await count(p, () => !S.wqOn && S.avgHyp === 0 && waterQuality() === 1));
   await p.evaluate(() => { setHints(true); for (let i = 0; i < 30 * 61; i++) step(1 / 30); }); // a first minute with no catch
   check('run: a short minute sends head office\'s trawler', await count(p, () => S.trawlers.some(t => t.company) && S.game.companyTrips === 1));
   await p.waitForFunction(() => !S.trawlers.some(t => t.company), null, { timeout: 15000 }).catch(() => {}); await wait(p, 500);

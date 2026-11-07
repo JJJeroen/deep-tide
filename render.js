@@ -73,6 +73,44 @@ function drawPollution(t) {
   ctx.globalAlpha = 1;
 }
 
+// runoff: fertilised water turns pea green; water short of oxygen goes a dead, bruised grey (same one-pixel-per-cell trick)
+const runCanvas = document.createElement('canvas'); runCanvas.width = GCOLS; runCanvas.height = GROWS;
+const runCtx = runCanvas.getContext('2d'), runImg = runCtx.createImageData(GCOLS, GROWS);
+const runBloom = new Float32Array(GCOLS * GROWS);
+// under the animals: fertilised water and the bloom itself (counted per cell) go pea green
+function drawRunoff() {
+  if (!S.wqOn) return;
+  runBloom.fill(0);
+  for (const a of S.agents) if (a.bloom && !a.dead) runBloom[pollIdx(a.x, a.y)]++;
+  const d = runImg.data;
+  for (let i = 0; i < S.nutr.length; i++) {
+    const o = i * 4, g = Math.min(1, S.nutr[i] * 3 + runBloom[i] / 6);
+    d[o] = 104; d[o + 1] = 168; d[o + 2] = 56; d[o + 3] = g * 130;
+  }
+  paintGrid();
+}
+// over the darkness (a dark patch in dark water would not show): water short of oxygen as a pale, dead haze, labelled
+function drawDeadZone() {
+  if (!S.wqOn || S.avgHyp <= 0) return;
+  const d = runImg.data, sat = oxySat(), ok = Math.min(OXY.ok, sat);
+  let wx = 0, wy = 0, w = 0;
+  for (let i = 0; i < S.odef.length; i++) {
+    const o = i * 4, ox = sat - S.odef[i], h = Math.max(0, Math.min(1, (ok - ox) / (ok - 0.1))), m = h * h * (3 - 2 * h);
+    d[o] = 150; d[o + 1] = 136; d[o + 2] = 150; d[o + 3] = m * 150;
+    if (ox < OXY.low) { wx += (i % GCOLS + 0.5) * GC; wy += ((i / GCOLS | 0) + 0.5) * GC; w++; }
+  }
+  paintGrid();
+  if (w >= 6) {
+    const fs = Math.max(13, 12 / scale);
+    ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(235,225,240,.75)';
+    ctx.fillText('dead zone · no oxygen', wx / w, wy / w); ctx.textAlign = 'left';
+  }
+}
+function paintGrid() {
+  runCtx.putImageData(runImg, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(runCanvas, 0, 0, GCOLS * GC, GROWS * GC);
+}
 
 // Fish hold a near-horizontal pitch: rotating straight into a vertical dive made them look like arrows.
 const MAX_PITCH = 0.45;
@@ -82,7 +120,7 @@ const RS = 1.3;
 
 function drawAgent(a, t) {
   const sp = SPECIES[a.t];
-  if (sp.plant) { ctx.fillStyle = 'rgba(143,227,160,0.65)'; ctx.fillRect(a.x - 1, a.y - 1, 2.2, 2.2); return; }
+  if (sp.plant) { ctx.fillStyle = a.bloom ? 'rgba(196,222,92,0.7)' : 'rgba(143,227,160,0.65)'; ctx.fillRect(a.x - 1, a.y - 1, 2.2, 2.2); return; } // bloom algae: yellower
   const spr = SPRITES[a.t];
   if (!spr) return;
   // depth: slightly smaller toward the seabed and tinted by the water around them, so the column has volume
@@ -378,7 +416,8 @@ function drawInspect(now) {
   if (deepOne) { drawDeepInspect(a); return; }
   if (typeof coachSaw === 'function') coachSaw(a.t);
   const sp = SPECIES[a.t], sx = ox + a.x * scale, sy = oy + a.y * scale, r = Math.max(9, sp.size * RS * 1.7 * scale);
-  const e = a.e / sp.max, mood = e < 0.3 ? 'starving' : e < 0.6 ? 'hungry' : 'well fed';
+  const e = a.e / sp.max, low = S.wqOn && oxyAt(a.x, a.y) < OXY.low;
+  const mood = low && sp.hypoxia !== false ? 'gasping: no oxygen here' : (e < 0.3 ? 'starving' : e < 0.6 ? 'hungry' : 'well fed') + (low ? ', fine without oxygen' : '');
   const line1 = SINGULAR[sp.id] || sp.name, line2 = mood + ' · ' + fmtClock(a.age) + ' old';
   const line3 = S.game.on ? (RUN_PROTECTED[a.t] ? 'protected: catching it costs points' : sp.invasive ? 'invasive · worth ' + RUN_VAL[a.t] : 'worth ' + (RUN_VAL[a.t] === 0.5 ? '½' : RUN_VAL[a.t])) : '';
   ctx.strokeStyle = 'rgba(234,247,255,.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 6.283); ctx.stroke();
@@ -424,7 +463,7 @@ function drawCursor() {
     }
   }
   if (tool === 'net') { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 50, 0, 6.283); ctx.stroke(); }
-  else if (tool === 'pollute') { ctx.strokeStyle = 'rgba(190,130,50,.8)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 80, 0, 6.283); ctx.stroke(); }
+  else if (tool === 'pollute') { ctx.strokeStyle = POLL_KIND === 'runoff' ? 'rgba(170,210,80,.85)' : 'rgba(190,130,50,.8)'; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 80, 0, 6.283); ctx.stroke(); }
   else if (tool === 'trawl') { ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.moveTo(0, ptr.y - 90); ctx.lineTo(WW, ptr.y - 90); ctx.moveTo(0, ptr.y + 90); ctx.lineTo(WW, ptr.y + 90); ctx.stroke(); ctx.setLineDash([]); }
   else if (tool === 'invader' || tool === 'stock') { ctx.strokeStyle = tool === 'invader' ? COL[INVADER] : COL[+document.getElementById('stockSel').value]; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 14, 0, 6.283); ctx.stroke(); }
 }
@@ -461,12 +500,12 @@ function frame(now) {
   collectCatch();
   updateMood(S.t);
   // under water, back to front; then the darkness and what glows through it; then the sky and the fleet on top
-  drawWater(); drawDeepWater(S.t); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawPlumes(S.t); drawMpa(S.t);
+  drawWater(); drawDeepWater(S.t); drawSunlight(S.t); drawSeabed(S.t); drawPollution(S.t); drawRunoff(); drawPlumes(S.t); drawMpa(S.t);
   for (const a of S.agents) drawAgent(a, S.t);
   drawGhosts(S.t);
   drawDeep(S.t);
   drawSnow(S.t); drawDeepSnow(S.t); drawSilt(); drawTrawlers(S.t);
-  drawDark(sceneLights()); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
+  drawDark(sceneLights()); drawDeadZone(); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t); drawMpaBuoys(S.t);
   drawTags(); // after the sky: value tags can reach above the waterline

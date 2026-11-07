@@ -17,13 +17,15 @@ function seeded(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math
 // ---- time of day comes from the sim (sim.js: DAY_LEN, dayPhase, nightAt, S.night): grazers migrate with it
 
 // ---- the mood of the water, shared by every layer
-const MOOD = { n: 0, warm: 0, pol: 0, cols: null };
+const MOOD = { n: 0, warm: 0, pol: 0, green: 0, cols: null };
 function updateMood(t) {
   MOOD.n = S.night;
   MOOD.warm = smooth(0.5, 0.8, S.temp);
-  MOOD.pol = clamp01(S.avgPoll * 5);
+  MOOD.pol = clamp01(S.avgPoll * 5 + S.avgHyp * 4); // a dead zone is murky and muffled too
+  MOOD.green = clamp01(S.avgNutr * 6 + S.bloomN / 900);  // a bloom greens the water
   const { n, warm, pol } = MOOD;
   let top = mixHex('#0e6890', '#1d8577', warm * 0.55), mid = mixHex('#063c5a', '#0d4f4b', warm * 0.45), deep = '#02121e';
+  top = mixHex(top, '#3f7a3a', MOOD.green * 0.45); mid = mixHex(mid, '#1d4a2a', MOOD.green * 0.3);
   top = mixHex(top, '#5a5026', pol * 0.5); mid = mixHex(mid, '#302d1b', pol * 0.45);
   top = mixHex(top, '#05182a', n * 0.7); mid = mixHex(mid, '#030d18', n * 0.6); deep = mixHex(deep, '#01070c', n * 0.5);
   MOOD.cols = { top, mid, deep };

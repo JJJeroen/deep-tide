@@ -57,6 +57,21 @@ const scarAt = x => S.scar[Math.min(GCOLS - 1, Math.max(0, (x / GC) | 0))];
 const MPA = { min: 200, max: Math.round(WW / 3) };
 const EXCLUDER = { on: false, prot: 0.9, leak: 0.15 };
 const inMpa = x => !!S.mpa && x >= S.mpa.x0 && x <= S.mpa.x1;
+// ---- M8 runoff + oxygen squeeze (part 5). Pollute has two kinds (POLL_KIND, the player's choice): plastic (S.poll, as before)
+// and runoff: fertiliser washed off farmland (S.nutr, same GC cells, 0..1). Runoff feeds a local plankton bloom (BLOOM: extra
+// plankton grows in fertilised, sunlit cells, using the fertiliser up). Bloom plankton lives short; when it dies it rots (S.rot)
+// and sinks, and the rot uses up oxygen. Oxygen is kept as a deficit grid (S.odef, 0 = as much as the water can hold), so an
+// untouched ocean has none of this and skips it entirely (S.wqOn). Warm water holds less oxygen (oxySat) and rot burns faster
+// in it, so a warm sea suffocates sooner. Oxygen comes back by mixing from the surface: fast near the top, slow at the bottom.
+// Animals in water below OXY.low lose energy and swim toward better water; plankton doesn't care, and jellyfish tolerate it
+// (`hypoxia: false`): they keep eating the bloom while everything else leaves, as in real coastal dead zones.
+let POLL_KIND = 'plastic';
+const RUNOFF = { r: 80, amt: 0.08, flush: 0.004 };       // brush (px, per step, as plastic) and the share washed out per second
+const BLOOM = { rate: 1.2, use: 0.02, life: [25, 50], capMul: 1.8 }; // per cell per s at fertiliser 1 in full light; fertiliser used per plankton
+const ROT = { add: 1, eaten: 0.7, k: 1 / 40, sinkRow: 25 }; // rot per dead bloom plankton (x eaten if it was eaten); share rotting per s; s to sink one cell (slow: the dead zone forms under the bloom, not on the floor)
+const OXY = { per: 0.3, low: 0.4, ok: 0.8, mix: 1 / 50, cost: 0.06, warm: 0.6 }; // deficit per unit of rot; stress threshold; ok = counts for water quality
+const oxySat = () => 1 - OXY.warm * Math.max(0, S.temp - 0.5);
+const oxyAt = (x, y) => S.wqOn ? Math.max(0, oxySat() - S.odef[pollIdx(x, y)]) : oxySat();
 // the strip a drag from x0 to x1 (any order) marks: MPA.min..MPA.max wide (a long drag keeps the end it started from), inside the water
 function mpaRange(x0, x1) {
   let a = Math.min(x0, x1), b = Math.max(x0, x1);
@@ -112,6 +127,7 @@ const RUN = {
   VALUE: { grazer: 1, hunter: 4, jelly: 0.5, invader: 2 }, // anything else (plankton aside) is protected bycatch
   PROTECTED: ['turtle', 'shark', 'manta'],
   DUMP_PAY: 1.0,                        // quota credit per second of dumping waste (industry contract)
+  RUNOFF_PAY: 1.0,                      // quota credit per second of letting farm runoff in (M8.5: the player picks a poison)
   BALLAST_PAY: 4, BALLAST_EVERY: 60,    // skipping ballast treatment pays once per ship; one ship a minute
   BIO_FLOOR: 0.6,
   PTS: { quota: 40, bio: 40, water: 20, lost: 10, bycatch: 1, bankrupt: 10 },
@@ -156,7 +172,7 @@ const SPECIES = [
     start: 10, startY: [100, 720], stock: 5, filter: true, move: 'drift',
     eats: [{ prey: 'plankton', gain: 22, reach: 30 }],
     sun: { y: 260, pull: 0.6, spread: 150 }, crowd: { k: 16, tax: 0.04 },
-    bloom: { at: 45, clear: 30, msg: 'A jellyfish bloom is taking over.' },
+    bloom: { at: 45, clear: 30, msg: 'A jellyfish bloom is taking over.' }, hypoxia: false,
     recolonize: { after: 180, natural: 20, n: 4, needs: { plankton: 150 }, rescue: { below: 3, every: 60 } } },
   { id: 'invader', name: 'Invaders', color: '#ff3d7f', shape: 'fish', size: 9, spines: true, invasive: true,
     speed: 84, turn: 3.5, vision: 150, meta: 2.4, max: 150, rep: 90, repCost: 45, pol: 0, cap: 80, life: [300, 500],
@@ -197,7 +213,7 @@ const S = {
   t: 0, temp: 0.5, agents: [], newborns: [], poll: new Float32Array(GCOLS * GROWS), avgPoll: 0,
   trawlers: [], hist: [], hacc: 0, plankAcc: 0, counts: zeros(), events: [],
   hash: [], flags: {}, peak: zeros(), effects: [], heal: zeros(), rescue: zeros(), harm: zeros(), zero: zeros(), harmed: zeros(),
-  game: { on: false }, ghosts: [], mpa: null, night: 0, reef: { bleach: 0, dead: 0 }, scar: new Float32Array(GCOLS), detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
+  game: { on: false }, ghosts: [], mpa: null, nutr: new Float32Array(GCOLS * GROWS), rot: new Float32Array(GCOLS * GROWS), odef: new Float32Array(GCOLS * GROWS), wqOn: false, avgNutr: 0, hypFrac: 0, avgHyp: 0, bloomN: 0, night: 0, reef: { bleach: 0, dead: 0 }, scar: new Float32Array(GCOLS), detritus: 0, seabed: 0, upwell: 0, sinkFlux: 0,
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
@@ -217,7 +233,7 @@ function resetWorld() {
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
   // start at the steady state of an untouched ocean: no transient while the nutrient pools fill up
-  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.scarMean = 0; S.ghosts = []; S.mpa = null; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
+  S.night = nightAt(0); S.reef = { bleach: 0, dead: 0 }; S.scar.fill(0); S.scarMean = 0; S.ghosts = []; S.mpa = null; S.nutr.fill(0); S.rot.fill(0); S.odef.fill(0); S.wqOn = false; S.avgNutr = 0; S.hypFrac = 0; S.avgHyp = 0; S.bloomN = 0; S.detritus = NUT_U0 * NUT_SINK; S.seabed = NUT_U0 * NUT_RISE; S.upwell = NUT_U0;
   for (const s of SPECIES) {
     for (let i = 0; i < (s.start || 0); i++) {
       const a = s.plant ? spawnPlankton() : makeAgent(s.i, rnd(100, WW - 100), rnd(s.startY[0], s.startY[1]));
@@ -268,9 +284,9 @@ function nearest(x, y, r, mask, self) {
 }
 
 function countAll() {
-  const c = zeros();
-  for (const a of S.agents) if (!a.dead) c[a.t]++;
-  S.counts = c;
+  const c = zeros(); let b = 0;
+  for (const a of S.agents) if (!a.dead) { c[a.t]++; if (a.bloom) b++; }
+  S.counts = c; S.bloomN = b;
   return c;
 }
 
@@ -288,11 +304,12 @@ function updPlankton(a, dt) {
   }
   if (a.x < 5) a.x = 5; else if (a.x > WW - 5) a.x = WW - 5;
   if (a.y < 3) a.y = 3; else if (a.y > WH - 3) a.y = WH - 3;
-  if (a.age > a.maxAge || Math.random() < pollAt(a.x, a.y) * 0.3 * dt) a.dead = true;
+  if (a.age > a.maxAge || Math.random() < pollAt(a.x, a.y) * 0.3 * dt) { a.dead = true; if (a.bloom) S.rot[pollIdx(a.x, a.y)] += ROT.add; }
 }
 
 function eat(pred, prey, gain) {
   prey.dead = true;
+  if (prey.bloom) S.rot[pollIdx(prey.x, prey.y)] += ROT.add * ROT.eaten; // an eaten bloom still sinks as waste and rots
   if (prey.t !== PLANKTON) S.detritus += massOf(SPECIES[prey.t]) * 0.4; // scraps and waste from a meal sink too
   pred.e = Math.min(SPECIES[pred.t].max, pred.e + gain);
   S.effects.push({ x: prey.x, y: prey.y, t: 0, kind: prey.t === PLANKTON ? 0 : 1 });
@@ -304,11 +321,17 @@ function updMobile(a, dt) {
   a.e -= (s.meta * tf + pollAt(a.x, a.y) * s.pol) * dt;
   if (s.crowd && S.counts[a.t] > s.crowd.k) a.e -= (S.counts[a.t] - s.crowd.k) * s.crowd.tax * dt;
   a.age += dt; a.cool -= dt;
+  // low oxygen: lose energy (a share of max per second, worse the lower it is) and head for better water
+  let hyp = 0;
+  if (S.wqOn && s.hypoxia !== false) { const ox = oxyAt(a.x, a.y); if (ox < OXY.low) { hyp = (OXY.low - ox) / OXY.low; a.e -= OXY.cost * s.max * hyp * dt; } }
   if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; S.detritus += massOf(s); return; } // the carcass sinks
 
   let dx = 0, dy = 0, mul = 0.5, wander = true;
   const thr = s.flee ? nearest(a.x, a.y, s.flee.radius, s.flee.mask, a) : null;
-  if (thr) {
+  if (hyp > 0 && !thr) { // gasping: up the oxygen gradient (two cells each way), and up toward the surface where it mixes in
+    dx = oxyAt(a.x + 2 * GC, a.y) - oxyAt(a.x - 2 * GC, a.y); dy = oxyAt(a.x, a.y + 2 * GC) - oxyAt(a.x, a.y - 2 * GC) - 0.15;
+    mul = 1.1; wander = false;
+  } else if (thr) {
     dx = a.x - thr.x; dy = a.y - thr.y; mul = s.flee.burst; a.e -= s.flee.cost * dt; wander = false;
     if (ALIVE.refuge && s.school && S.reef.dead < 0.9 && a.x < REFUGE.x1 + 260 && a.y > REFUGE.y0 - 260) { // close to a living reef: dive for cover
       const m0 = Math.hypot(dx, dy) || 1, rx = Math.min(REFUGE.x1 - 60, a.x) - a.x, ry = Math.max(REFUGE.y0 + 60, a.y) - a.y, rm = Math.hypot(rx, ry) || 1;
@@ -439,6 +462,7 @@ function step(dt) {
   S.newborns.length = 0;
   stepTools(dt);
   stepPollution(dt);
+  if (S.wqOn) stepRunoff(dt);
   S.agents = S.agents.filter(a => !a.dead);
   countAll();
   stepRecolonize(dt);
@@ -475,7 +499,7 @@ function stepNutrients(dt) {
 // - Recolonization: a species that has died out comes back. If the player caused the loss (killed it recently, fouled or heated
 //   the water, or released invaders) that takes a long time (`after`) and is announced. A natural loss is a quick blip (`natural`).
 function stepRecolonize(dt) {
-  const healthy = S.avgPoll < 0.03 && S.temp < 0.7;
+  const healthy = S.avgPoll < 0.03 && S.temp < 0.7 && S.hypFrac < 0.03; // a dead zone keeps them away too
   const invaded = S.counts[INVADER] > 0;
   for (const s of NATIVE) {
     if (!s.recolonize || s.plant) continue;
@@ -533,6 +557,70 @@ function addPollution(x, y, r, amt) {
     }
 }
 
+// the brush, for either grid: adds amt at the centre, tapering to 0 at radius r
+function addField(g, x, y, r, amt) {
+  for (let cy = Math.max(0, ((y - r) / GC) | 0); cy <= Math.min(GROWS - 1, ((y + r) / GC) | 0); cy++)
+    for (let cx = Math.max(0, ((x - r) / GC) | 0); cx <= Math.min(GCOLS - 1, ((x + r) / GC) | 0); cx++) {
+      const d = Math.hypot((cx + 0.5) * GC - x, (cy + 0.5) * GC - y);
+      if (d < r) g[cy * GCOLS + cx] = Math.min(1, g[cy * GCOLS + cx] + amt * (1 - d / r));
+    }
+}
+function addRunoff(x, y, r, amt) { addField(S.nutr, x, y, r, amt); S.wqOn = true; }
+// fertiliser -> bloom -> rot -> oxygen deficit, and the deficit mixing away. Only runs once runoff has been added (S.wqOn),
+// and switches itself off again once all three grids are back to nothing.
+function stepRunoff(dt) {
+  const nu = S.nutr, rot = S.rot, od = S.odef, L = GCOLS * GROWS;
+  // algae blooms like it warm (unlike the plankton's normal growth, which heat stresses): cold slows a bloom, heat doesn't
+  const tf = 0.7 + 0.6 * S.temp, sat = oxySat(), heat = S.temp < 0.5 ? 1 - COLD_SLOW * (0.5 - S.temp) : 1;
+  const pkMax = PK_CAP * BLOOM.capMul, ok = Math.min(OXY.ok, sat); // shortfall is measured against what the water can hold: very warm water isn't a dead zone by itself
+  // fertiliser spreads like the waste does, and the current slowly flushes it out
+  diffuse(nu, Math.min(0.5, 0.8 * dt), 1 - RUNOFF.flush * dt, 'nutrB');
+  let sumN = 0, sumR = 0, sumD = 0, hyp = 0, hypSum = 0;
+  for (let cy = 0; cy < GROWS; cy++) {
+    const light = Math.exp(-(cy + 0.5) * GC / LIGHT_DEPTH), mix = OXY.mix * (0.15 + 0.85 * Math.pow(1 - cy / GROWS, 2)), sink = Math.min(1, dt / ROT.sinkRow);
+    for (let cx = 0; cx < GCOLS; cx++) {
+      const i = cy * GCOLS + cx;
+      // the bloom: fertiliser + light make extra plankton, which uses the fertiliser up. Daylight depth only, night ignored: a day
+      // here is 4 minutes, and a bloom that stalled each night made the harm hinge on the time of day (none at dusk, a big one at dawn)
+      if (nu[i] > 1e-3) {
+        let acc = BLOOM.rate * nu[i] * light * heat * dt;
+        while (acc > 0 && (acc >= 1 || Math.random() < acc) && S.counts[PLANKTON] < pkMax) {
+          acc -= 1;
+          const a = makeAgent(PLANKTON, (cx + Math.random()) * GC, (cy + Math.random()) * GC);
+          a.maxAge = rnd(BLOOM.life[0], BLOOM.life[1]); a.bloom = 1;
+          if (Math.random() >= S.poll[i]) { S.agents.push(a); S.counts[PLANKTON]++; } // (countAll recounts at the end of the step)
+          nu[i] = Math.max(0, nu[i] - BLOOM.use);
+        }
+      }
+      // rot burns oxygen (faster in warm water) and sinks a cell every ROT.sinkRow s
+      if (rot[i] > 0) { // (no small-value cut-off: rot sinking into a clean cell arrives in tiny amounts, and a cut-off ate ~6% of it)
+        const used = rot[i] * Math.min(1, ROT.k * tf * dt);
+        rot[i] -= used; od[i] += used * OXY.per;
+        if (cy < GROWS - 1) { const m = rot[i] * sink; rot[i] -= m; rot[i + GCOLS] += m; }
+      }
+      // oxygen mixes back in from the surface
+      od[i] = Math.min(sat, od[i] * (1 - Math.min(1, mix * dt))); // (tiny leftovers are cleared when the whole system switches off)
+      sumN += nu[i]; sumR += rot[i]; sumD += od[i];
+      const ox = sat - od[i];
+      if (ox < OXY.low) hyp++;
+      if (ox < ok) hypSum += (ok - ox) / ok;
+    }
+  }
+  diffuse(od, Math.min(0.5, 0.4 * dt), 1, 'odefB');
+  S.avgNutr = sumN / L; S.hypFrac = hyp / L; S.avgHyp = hypSum / L;
+  if (sumN < 0.01 && sumR < 0.01 && sumD < 0.01 && S.bloomN === 0) { nu.fill(0); rot.fill(0); S.odef.fill(0); S.wqOn = false; S.hypFrac = 0; S.avgHyp = 0; S.avgNutr = 0; }
+}
+// one step of 4-neighbour diffusion on a GC grid, in place (through a spare buffer kept on S under `spare`)
+function diffuse(g, k, decay, spare) {
+  const n = S[spare] || (S[spare] = new Float32Array(g.length));
+  for (let y = 0; y < GROWS; y++) for (let x = 0; x < GCOLS; x++) {
+    const i = y * GCOLS + x, v = g[i];
+    const l = x > 0 ? g[i - 1] : v, r = x < GCOLS - 1 ? g[i + 1] : v, u = y > 0 ? g[i - GCOLS] : v, d = y < GROWS - 1 ? g[i + GCOLS] : v;
+    n[i] = (v + k * ((l + r + u + d) / 4 - v)) * decay;
+  }
+  g.set(n);
+}
+
 function netAt(x, y, r) {
   let n = 0;
   for (const a of S.agents) {
@@ -552,10 +640,15 @@ function harvest(a, company) {
   else { g.haul += RUN_VAL[a.t]; g.fish += RUN_VAL[a.t]; }
 }
 // dumping waste: pollution everywhere, and in the scored run an industry contract that pays toward the quota
-function dumpAt(x, y, dt) {
-  addPollution(x, y, 80, 0.08);
+// (kind: 'plastic' = waste, the default; 'runoff' = fertiliser, the farm contract)
+function dumpAt(x, y, dt, kind) {
+  const runoff = (kind || POLL_KIND) === 'runoff';
+  if (runoff) addRunoff(x, y, RUNOFF.r, RUNOFF.amt); else addPollution(x, y, 80, 0.08);
   const g = S.game;
-  if (g.on && !g.over) { g.haul += RUN.DUMP_PAY * dt; g.dumped += RUN.DUMP_PAY * dt; }
+  if (g.on && !g.over) {
+    if (runoff) { g.haul += RUN.RUNOFF_PAY * dt; g.runoff += RUN.RUNOFF_PAY * dt; }
+    else { g.haul += RUN.DUMP_PAY * dt; g.dumped += RUN.DUMP_PAY * dt; }
+  }
 }
 // releasing invaders. In the scored run this is a ship skipping ballast-water treatment: it pays once, and a ship only
 // comes in every BALLAST_EVERY seconds. Returns false (nothing released) while no ship is in port.
@@ -668,8 +761,12 @@ function sample() {
   }
   if (S.peak[PLANKTON] > 200 && c[PLANKTON] < 15 && !S.flags.plank) { S.flags.plank = true; log('The plankton has collapsed. Everything above it is starving.', 'warn'); }
   if (c[PLANKTON] > 120) S.flags.plank = false;
-  if (!S.flags.dead && S.avgPoll > 0.12) { S.flags.dead = true; log('A dead zone is spreading.', 'warn'); }
+  if (!S.flags.dead && S.avgPoll > 0.12) { S.flags.dead = true; log('The water is thick with waste.', 'warn'); }
   if (S.avgPoll < 0.05) S.flags.dead = false;
+  if (!S.flags.algae && S.bloomN > 150) { S.flags.algae = true; log('The fertiliser is feeding an algal bloom. The water is turning green.', 'warn'); }
+  if (S.bloomN < 40) S.flags.algae = false;
+  if (!S.flags.anoxic && S.hypFrac > 0.04) { S.flags.anoxic = true; log('A dead zone: the rotting bloom has used up the oxygen. Fish are fleeing it.', 'warn'); }
+  if (S.hypFrac < 0.01) S.flags.anoxic = false;
   // warn from 0.7: that is where stepRecolonize stops counting the water as healthy, and by 0.75 most predators collapse
   if (!S.flags.hot && S.temp >= 0.7) { S.flags.hot = true; log('The water is too warm. The plankton is struggling, and nothing that dies out will come back until it cools.', 'warn'); }
   if (S.temp < 0.65) S.flags.hot = false;
@@ -683,13 +780,15 @@ function biodiversity() {
   for (const n of c) if (n > 0) { const p = n / tot; h -= p * Math.log(p); }
   return h / Math.log(c.length);
 }
-function waterQuality() { return 1 - Math.min(1, S.avgPoll / 0.2); }
+// plastic as before, plus the oxygen squeeze: S.avgHyp is the mean shortfall below OXY.ok (0 in an untouched ocean)
+let HYP_W = 2.5; // a 10 s runoff sweep bottoms out near a 10 s plastic sweep (tune.js: runoff vs pollute water low, see the M8.5 handoff)
+function waterQuality() { return 1 - Math.min(1, S.avgPoll / 0.2 + S.avgHyp * HYP_W); }
 
 // ---- Anthropocene run (pure state; the UI only reads S.game)
 const demandAt = m => RUN.Q_BASE + RUN.Q_STEP * m;
 function startRun() { // call right after resetWorld()
   S.game = { on: true, over: false, minute: 0, haul: 0, mins: [], streak: 0, bankrupt: false, bycatch: 0,
-    company: 0, companyProt: 0, companyTrips: 0, sendCompany: false, ghostKills: 0, ghostProt: 0, ghostsHauled: 0, fish: 0, dumped: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
+    company: 0, companyProt: 0, companyTrips: 0, sendCompany: false, ghostKills: 0, ghostProt: 0, ghostsHauled: 0, fish: 0, dumped: 0, runoff: 0, hypPeak: 0, ballast: 0, ballastAt: -1e9, everZero: zeros(), result: null };
   S.temp = RUN.TEMP_START;
   log('The fleet needs ' + demandAt(0) + ' in catch this minute, and more every minute after.', 'warn');
 }
@@ -698,6 +797,7 @@ function stepGame() {
   if (!g.on || g.over) return;
   S.temp = RUN.TEMP_START + (RUN.TEMP_END - RUN.TEMP_START) * Math.min(1, S.t / RUN.DUR);
   for (const s of NATIVE) if (S.counts[s.i] === 0) g.everZero[s.i] = 1;
+  if (S.hypFrac > g.hypPeak) g.hypPeak = S.hypFrac;
   if (S.t >= (g.minute + 1) * RUN.MINUTE - 1e-6) closeMinute(g);
   if (g.sendCompany && S.t < RUN.DUR - 1e-6) { g.sendCompany = false; g.companyTrips++; startTrawl(richestBand(), true); }
   if (S.t >= RUN.DUR - 1e-6) { g.over = true; g.result = runScore(); }
@@ -730,10 +830,10 @@ function runScore() {
     { label: 'Fleet bankrupt', pts: g.bankrupt ? -P.bankrupt : 0 },
   ].map(p => ({ label: p.label, pts: Math.round(p.pts) }));
   const score = parts.reduce((a, p) => a + p.pts, 0);
-  const met = g.mins.filter(m => m.ok).length, delivered = g.fish + g.dumped + g.ballast;
+  const met = g.mins.filter(m => m.ok).length, delivered = g.fish + g.dumped + g.runoff + g.ballast;
   const quotaTotal = g.mins.reduce((a, m) => a + m.demand, 0);
   return { score, parts, quota, bio, water, lost, recovered, met, minutes: g.mins.length, delivered, quotaTotal,
-    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, ghostKills: g.ghostKills, ghostProt: g.ghostProt, ghostsHauled: g.ghostsHauled, mpa: !!S.mpa, dumped: g.dumped, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
+    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, ghostKills: g.ghostKills, ghostProt: g.ghostProt, ghostsHauled: g.ghostsHauled, mpa: !!S.mpa, dumped: g.dumped, runoff: g.runoff, hypPeak: g.hypPeak, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
 }
 function verdict(quota, lost, bio) {
   if (quota >= 0.9 && lost === 0 && bio >= 0.85) return 'The fleet was fed and the ocean held. That is rarer than it sounds.';

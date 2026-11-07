@@ -49,6 +49,9 @@ Split the Pollute tool into two kinds through a selector like Stock's (toolbar s
 - Run: "Dump waste" becomes the plastic contract as now; a new farm-runoff contract pays a little per second too, so the
   player picks a poison. waterQuality() counts both (plastic as now, plus mean oxygen deficit).
 Hints: bloom, dead zone (low oxygen), jellies taking over.
+Built 2026-11-07 (see SESSION-2026-11-07-m8-part-5.md). Deviations: oxygen is a deficit grid `S.odef` (0 = healthy) so an
+untouched ocean skips the whole system; eaten bloom plankton rots too (else grazing hid the effect); the bloom ignores night
+(else the harm hinged on the time of day); rot sinks slowly so the dead zone forms under the bloom, not on the floor.
 
 ## Order and sessions
 1 → 2 → 3 → 4 → 5, one commit each. Parts 1-3 fit one session; 4 and 5 are a session each (UI work, new grid + tuning).
