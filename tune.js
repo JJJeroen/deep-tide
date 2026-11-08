@@ -301,5 +301,8 @@ function reportAnthro(out, bots, runs, patch) {
       ` ${(avg(x => x.bio) * 100).toFixed(0).padStart(4)} ${(avg(x => x.water) * 100).toFixed(0).padStart(7)} ${avg(x => x.lost.length).toFixed(1).padStart(5)} ${avg(x => x.recovered.length).toFixed(1).padStart(6)} ${avg(x => x.bycatch).toFixed(1).padStart(8)} ${(R.filter(x => x.bankrupt).length + '/' + R.length).padStart(9)} | ${avg(x => x.companyTrips).toFixed(1).padStart(13)} ${avg(x => x.ghostKills).toFixed(1).padStart(12)} ${(avg(x => x.hypPeak) * 100).toFixed(1).padStart(11)}` +
       (Object.keys(lostNames).length ? '   lost: ' + Object.entries(lostNames).map(([n, c]) => n + ' ' + c).join(', ') : ''));
     console.log(' '.repeat(11) + 'parts: ' + R[0].parts.map((p, i) => p.label.replace(/ \(.*/, '') + ' ' + avg(x => x.parts[i].pts).toFixed(1)).join(' | '));
+    const vs = {}; // which end-of-run verdict line each run got (first words of the line)
+    for (const x of R) { const k = x.verdict.split(' ').slice(0, 6).join(' '); vs[k] = (vs[k] || 0) + 1; }
+    console.log(' '.repeat(11) + 'verdicts: ' + Object.entries(vs).sort((a, c) => c[1] - a[1]).map(([k, c]) => `"${k}" ${c}`).join(' · '));
   }
 }

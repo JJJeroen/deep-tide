@@ -59,4 +59,5 @@ Handoff after each session in docs/summaries.
 
 ## Open (not blocking, flagged for the owner)
 - Score shape: parts 1, 3 and 5 add new ways to lose points; the steward reference and the verdict lines get re-measured at the end.
+  Done 2026-11-08 (docs/summaries/SESSION-2026-11-08-m8-score-shape.md): weights unchanged, steward stays 36, verdict lines rewritten (fouled water and bycatch get their own lines), runoff pay 0.6 (provisional).
 - Phone toolbar: part 4 adds one button (Protected area) and one toggle. If the bar overflows on 390 px, group the harm tools.

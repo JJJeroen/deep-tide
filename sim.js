@@ -127,13 +127,16 @@ const RUN = {
   VALUE: { grazer: 1, hunter: 4, jelly: 0.5, invader: 2 }, // anything else (plankton aside) is protected bycatch
   PROTECTED: ['turtle', 'shark', 'manta'],
   DUMP_PAY: 1.0,                        // quota credit per second of dumping waste (industry contract)
-  RUNOFF_PAY: 1.0,                      // quota credit per second of letting farm runoff in (M8.5: the player picks a poison)
+  RUNOFF_PAY: 0.6,                      // quota credit per second of letting farm runoff in (M8.5). At 1.0 a runoff top-up scored
+                                        // about the same as not topping up (farmer 49 vs measured 55, 40 runs): the bloom feeds the grazers
+                                        // and offsets the water penalty. 0.6 makes it a clear loss, like the plan's "pays a little" (provisional).
   BALLAST_PAY: 4, BALLAST_EVERY: 60,    // skipping ballast treatment pays once per ship; one ship a minute
   BIO_FLOOR: 0.6,
   PTS: { quota: 40, bio: 40, water: 20, lost: 10, bycatch: 1, bankrupt: 10 },
   // typical do-nothing result, shown on the end screen (node tune.js 0 40 anthro bot=steward). M2: 41 +-5.5, bio 92%; after M6: 40.6 +-5.8;
   // M8 company trawler (two trips before the fleet goes bankrupt): 37.6 +-9.4, bio 91%; with bottom-trawl scars a second 40-run batch
   // gave 34.6 +-12.8, bio 90% (head office's band reaches the reef only ~1% of the time, so mostly noise): pooled 36, 90%.
+  // M8 score-shape pass (2026-11-08, after M8.5; runoff never touches a steward run): 37.0 +-10.0, bio 91%; 34.5 +-10.4, bio 89%; four batches pooled 36, 90%.
   // Re-run and update it whenever the constants above or the species table change.
   STEWARD: { score: 36, bio: 0.90 },
 };
@@ -833,13 +836,22 @@ function runScore() {
   const met = g.mins.filter(m => m.ok).length, delivered = g.fish + g.dumped + g.runoff + g.ballast;
   const quotaTotal = g.mins.reduce((a, m) => a + m.demand, 0);
   return { score, parts, quota, bio, water, lost, recovered, met, minutes: g.mins.length, delivered, quotaTotal,
-    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, ghostKills: g.ghostKills, ghostProt: g.ghostProt, ghostsHauled: g.ghostsHauled, mpa: !!S.mpa, dumped: g.dumped, runoff: g.runoff, hypPeak: g.hypPeak, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict(quota, lost.length, bio) };
+    fish: g.fish, company: g.company, companyProt: g.companyProt, companyTrips: g.companyTrips, ghostKills: g.ghostKills, ghostProt: g.ghostProt, ghostsHauled: g.ghostsHauled, mpa: !!S.mpa, dumped: g.dumped, runoff: g.runoff, hypPeak: g.hypPeak, ballast: g.ballast, bycatch: g.bycatch, bankrupt: g.bankrupt, verdict: verdict({ quota, lost: lost.length, bio, water, bycatch: g.bycatch }) };
 }
-function verdict(quota, lost, bio) {
-  if (quota >= 0.9 && lost === 0 && bio >= 0.85) return 'The fleet was fed and the ocean held. That is rarer than it sounds.';
-  if (quota >= 0.9 && lost >= 2) return 'Every quota met. Some of what lived here will not be back.';
-  if (quota >= 0.9) return 'The fleet was fed. The ocean paid for it.';
-  if (quota < 0.35 && lost === 0) return 'The water is still full of life. The harbour is quiet.';
+// The end-of-run line: what the season cost, checked first to last. Re-measured after M8 (node tune.js 0 40 anthro bot=all,
+// which prints how often each bot gets each line): fouled water and protected bycatch now get their own lines for a fed fleet
+// (they are checked before species loss, so they name the harm the player chose), and "the ocean held" needs clean water and little bycatch. A steward that lost one species to head
+// office's trawlers was told "Some fish" with no fish caught; it now gets the quiet-harbour line.
+const VERDICT = { fed: 0.9, quiet: 0.35, held: 0.85, clean: 0.9, foul: 0.7, bycatch: 10 };
+function verdict({ quota, lost, bio, water, bycatch }) {
+  const V = VERDICT, fed = quota >= V.fed;
+  if (fed && lost === 0 && bio >= V.held && water >= V.clean && bycatch < V.bycatch) return 'The fleet was fed and the ocean held. That is rarer than it sounds.';
+  if (fed && water < V.foul) return 'The fleet was fed. The water is what it cost.';
+  if (fed && bycatch >= V.bycatch) return 'The fleet was fed. Turtles and sharks came up in the nets with the catch.';
+  if (fed && lost >= 2) return 'Every quota met. Some of what lived here will not be back.';
+  if (fed) return 'The fleet was fed. The ocean paid for it.';
+  if (quota < V.quiet && lost === 0) return water >= V.foul ? 'The water is still full of life. The harbour is quiet.' : 'The harbour is quiet, but the water is fouled.';
+  if (quota < V.quiet && lost === 1) return 'The harbour is quiet, and the sea still lost a species.';
   if (lost >= 2) return 'Short on fish, and short on species. Nobody won this one.';
   return 'Some fish, some losses. Most real oceans look like this.';
 }
