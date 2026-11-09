@@ -220,18 +220,41 @@ const S = {
 };
 for (let i = 0; i < HCOLS * HROWS; i++) S.hash.push([]);
 
-const rnd = (a, b) => a + Math.random() * (b - a);
+// ---- M9 seeded oceans. Everything random in the simulation draws from one seeded generator, so a seed plus the player's
+// actions (each on the step it happened) decide a whole run: the same seed gives the same ocean, in the page and in tune.js.
+// A seed is any string (the page makes six base-36 characters; ?seed=... in the URL picks one). The deep layer and tune.js's
+// bots draw from their own streams of the same seed, so they never shift the sunlit sim. Render and sound keep Math.random:
+// they run per frame, and the frame rate must not change the ocean.
+// sfc32 (Chris Doty-Humphrey's small fast counter generator, 128-bit state) seeded through FNV-1a and splitmix32.
+function makeRng(seed) {
+  let h = 0x811c9dc5;
+  for (const ch of String(seed)) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193);
+  const mix = () => { h = h + 0x9e3779b9 | 0; let t = h ^ h >>> 16; t = Math.imul(t, 0x21f0aaad); t ^= t >>> 15; t = Math.imul(t, 0x735a2d97); return t ^ t >>> 15; };
+  let a = mix(), b = mix(), c = mix(), d = mix();
+  const next = () => {
+    const t = (a + b | 0) + d | 0;
+    d = d + 1 | 0; a = b ^ b >>> 9; b = c + (c << 3) | 0; c = (c << 21 | c >>> 11) + t | 0;
+    return (t >>> 0) / 4294967296; // [0, 1)
+  };
+  for (let i = 0; i < 12; i++) next();
+  return next;
+}
+const freshSeed = () => Math.floor(Math.random() * 36 ** 6).toString(36).padStart(6, '0'); // only picks a seed, never steers the sim
+let SEED = '', rand = makeRng(SEED);
+function seedWorld(seed) { SEED = String(seed); rand = makeRng(SEED); }
+const rnd = (a, b) => a + rand() * (b - a);
 
 function makeAgent(t, x, y) {
   const s = SPECIES[t];
   return {
-    t, x, y, vx: 0, vy: 0, ang: Math.random() * 6.283, dead: false, age: 0, cool: rnd(0, 6), phase: Math.random() * 6.283,
+    t, x, y, vx: 0, vy: 0, ang: rand() * 6.283, dead: false, age: 0, cool: rnd(0, 6), phase: rand() * 6.283,
     e: s.plant ? 0 : (s.max * rnd(0.45, 0.7)),
     maxAge: s.plant ? rnd(40, 90) : rnd(s.life[0], s.life[1]),
   };
 }
 
-function resetWorld() {
+function resetWorld(seed = freshSeed()) {
+  seedWorld(seed);
   S.t = 0; S.agents = []; S.newborns = []; S.poll.fill(0); S.avgPoll = 0; S.trawlers = []; S.hist = []; S.hacc = 0; S.events = [];
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
@@ -250,7 +273,7 @@ function resetWorld() {
 
 function spawnPlankton() {
   // sunlight is strongest near the surface, so plankton cluster there
-  const a = makeAgent(PLANKTON, rnd(10, WW - 10), WH * Math.pow(Math.random(), 1.7));
+  const a = makeAgent(PLANKTON, rnd(10, WW - 10), WH * Math.pow(rand(), 1.7));
   a.maxAge = rnd(40, 90);
   return a;
 }
@@ -299,15 +322,15 @@ function countAll() {
 let PK_DAY = [100, 420], PK_NIGHT = [15, 220], PK_SWIM = 9, PK_MIGRANT = 0.5; // depth ranges (px), swimming speed (px/s), share that migrates
 function updPlankton(a, dt) {
   a.age += dt;
-  a.x += (Math.random() - 0.5) * 8 * dt;
-  a.y += (Math.random() - 0.45) * 6 * dt;
+  a.x += (rand() - 0.5) * 8 * dt;
+  a.y += (rand() - 0.45) * 6 * dt;
   if (ALIVE.dvm && a.phase < 6.283 * PK_MIGRANT) { // the zooplankton share swims; the phytoplankton stays where it grows
     const f = a.phase / 6.283 / PK_MIGRANT, ty = PK_DAY[0] + f * (PK_DAY[1] - PK_DAY[0]) + (PK_NIGHT[0] + f * (PK_NIGHT[1] - PK_NIGHT[0]) - PK_DAY[0] - f * (PK_DAY[1] - PK_DAY[0])) * S.night;
     a.y += Math.max(-PK_SWIM, Math.min(PK_SWIM, (ty - a.y) * 0.2)) * dt;
   }
   if (a.x < 5) a.x = 5; else if (a.x > WW - 5) a.x = WW - 5;
   if (a.y < 3) a.y = 3; else if (a.y > WH - 3) a.y = WH - 3;
-  if (a.age > a.maxAge || Math.random() < pollAt(a.x, a.y) * 0.3 * dt) { a.dead = true; if (a.bloom) S.rot[pollIdx(a.x, a.y)] += ROT.add; }
+  if (a.age > a.maxAge || rand() < pollAt(a.x, a.y) * 0.3 * dt) { a.dead = true; if (a.bloom) S.rot[pollIdx(a.x, a.y)] += ROT.add; }
 }
 
 function eat(pred, prey, gain) {
@@ -351,7 +374,7 @@ function updMobile(a, dt) {
     if (f) eat(a, f, d.gain);
     if (s.move === 'drift') { // slow pulsing drift
       dy = Math.sin(S.t * 0.6 + a.phase) * 0.8; dx = Math.cos(a.ang) * 0.5;
-      a.ang += (Math.random() - 0.5) * 1.5 * dt; mul = 0.5; wander = false;
+      a.ang += (rand() - 0.5) * 1.5 * dt; mul = 0.5; wander = false;
       if ((a.x < 90 && dx < 0) || (a.x > WW - 90 && dx > 0)) a.ang = Math.PI - a.ang; // drift away from the side walls
     }
   } else if (a.e < s.max * (s.satiate || 1.01)) {
@@ -369,13 +392,13 @@ function updMobile(a, dt) {
         // so the per-step chance is 1-(1-p)^(CATCH_RATE*dt) and the outcome doesn't depend on the step size
         let p = d.catch ? Math.min(1, d.catch.min + S.counts[d.p] / d.catch.k) : 1;
         if (ALIVE.refuge && SPECIES[prey.t].school && inRefuge(prey.x, prey.y)) p *= 1 - 0.65 * (1 - S.reef.dead) * (1 - scarAt(prey.x)); // small fish hide in the reef; a dead or trawled one hides nothing
-        if (Math.random() < 1 - Math.pow(1 - p, CATCH_RATE * dt)) eat(a, prey, d.gain);
+        if (rand() < 1 - Math.pow(1 - p, CATCH_RATE * dt)) eat(a, prey, d.gain);
       }
       break;
     }
   }
 
-  if (wander) { a.ang += (Math.random() - 0.5) * 4 * dt; dx = Math.cos(a.ang); dy = Math.sin(a.ang); }
+  if (wander) { a.ang += (rand() - 0.5) * 4 * dt; dx = Math.cos(a.ang); dy = Math.sin(a.ang); }
   // some species drift back toward the sunlit layer where the plankton lives
   // with day and night, migrants follow the light: deep by day, near the surface at night
   // (grazers follow the migrating plankton: their preferred depth moves with it). `spread` gives each animal its own depth
@@ -459,7 +482,7 @@ function step(dt) {
   while (S.plankAcc >= 1) {
     S.plankAcc -= 1;
     const k = spawnPlankton();
-    if (Math.random() >= pollAt(k.x, k.y)) S.agents.push(k);
+    if (rand() >= pollAt(k.x, k.y)) S.agents.push(k);
   }
   for (const k of S.newborns) S.agents.push(k);
   S.newborns.length = 0;
@@ -531,7 +554,7 @@ function stepRecolonize(dt) {
   }
 }
 function arrive(i, n) {
-  const x = Math.random() < 0.5 ? 40 : WW - 40;
+  const x = rand() < 0.5 ? 40 : WW - 40;
   for (let k = 0; k < n; k++) {
     const a = makeAgent(i, x + rnd(-15, 15), rnd(120, WH * 0.7));
     a.e = SPECIES[i].max * 0.9; // arrivals are fit, not starving
@@ -587,11 +610,11 @@ function stepRunoff(dt) {
       // here is 4 minutes, and a bloom that stalled each night made the harm hinge on the time of day (none at dusk, a big one at dawn)
       if (nu[i] > 1e-3) {
         let acc = BLOOM.rate * nu[i] * light * heat * dt;
-        while (acc > 0 && (acc >= 1 || Math.random() < acc) && S.counts[PLANKTON] < pkMax) {
+        while (acc > 0 && (acc >= 1 || rand() < acc) && S.counts[PLANKTON] < pkMax) {
           acc -= 1;
-          const a = makeAgent(PLANKTON, (cx + Math.random()) * GC, (cy + Math.random()) * GC);
+          const a = makeAgent(PLANKTON, (cx + rand()) * GC, (cy + rand()) * GC);
           a.maxAge = rnd(BLOOM.life[0], BLOOM.life[1]); a.bloom = 1;
-          if (Math.random() >= S.poll[i]) { S.agents.push(a); S.counts[PLANKTON]++; } // (countAll recounts at the end of the step)
+          if (rand() >= S.poll[i]) { S.agents.push(a); S.counts[PLANKTON]++; } // (countAll recounts at the end of the step)
           nu[i] = Math.max(0, nu[i] - BLOOM.use);
         }
       }
@@ -684,10 +707,10 @@ function stepTools(dt) {
       // an excluder grid: each animal gets one chance per pass to slip out (protected ones nearly always do)
       if (tr.excl && a.t !== PLANKTON) {
         if (tr.spared.has(a)) continue;
-        if (Math.random() < (RUN_PROTECTED[a.t] ? EXCLUDER.prot : EXCLUDER.leak)) { tr.spared.add(a); if (RUN_PROTECTED[a.t]) tr.escProt++; else tr.escOther++; continue; }
+        if (rand() < (RUN_PROTECTED[a.t] ? EXCLUDER.prot : EXCLUDER.leak)) { tr.spared.add(a); if (RUN_PROTECTED[a.t]) tr.escProt++; else tr.escOther++; continue; }
       }
       // bycatch: everything in the net dies, plankton too (at a lower rate)
-      if (a.t !== PLANKTON || Math.random() < 0.5) { a.dead = true; harvest(a, tr.company); }
+      if (a.t !== PLANKTON || rand() < 0.5) { a.dead = true; harvest(a, tr.company); }
     }
     // the net mouth dragging over the floor scars each column once per pass, harder the deeper it digs (lifted over a protected area)
     if (SCAR.on) for (let c = Math.max(0, (tr.x / GC) | 0); c <= Math.min(GCOLS - 1, (nx / GC) | 0); c++) {
@@ -697,7 +720,7 @@ function stepTools(dt) {
     }
     tr.x = nx;
   }
-  for (const tr of S.trawlers) if (tr.x >= WW + 120 && GHOST.on && Math.random() < GHOST.lose) loseNet(rnd(150, WW - 150), tr.y);
+  for (const tr of S.trawlers) if (tr.x >= WW + 120 && GHOST.on && rand() < GHOST.lose) loseNet(rnd(150, WW - 150), tr.y);
   S.trawlers = S.trawlers.filter(t => t.x < WW + 120);
   stepGhosts(dt);
 }
@@ -720,7 +743,7 @@ function stepGhosts(dt) {
       const ex = (a.x - gn.x) / GHOST.w, ey = (a.y - gn.y) / GHOST.h;
       if (ex * ex + ey * ey > 1) continue;
       const rate = (SPECIES[a.t].size >= GHOST.big ? GHOST.bigRate : GHOST.rate) * fray;
-      if (Math.random() < 1 - Math.exp(-rate * dt)) entangle(gn, a);
+      if (rand() < 1 - Math.exp(-rate * dt)) entangle(gn, a);
     }
   }
   S.ghosts = S.ghosts.filter(gn => gn.age < GHOST.life);

@@ -41,12 +41,16 @@ const menuEl = document.getElementById('menu'), endEl = document.getElementById(
 const tempEl = document.getElementById('temp');
 const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 
+// M9: ?seed=... replays one ocean (every game on the page uses it); otherwise each game gets a fresh seed. Kept to a-z, 0-9
+// and '-' (at most 24 characters) because the seed is printed on the end screen.
+const URL_SEED = (new URLSearchParams(location.search).get('seed') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
 function newGame(m) {
   mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
   resetScene();
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
-  resetWorld(); resetDeep(); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null;
+  const seed = URL_SEED || freshSeed();
+  resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null;
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;
@@ -123,6 +127,7 @@ function showEnd() {
       .map(p => `<tr><td>${p.label}</td><td class="${p.pts < 0 ? 'neg' : ''}">${p.pts > 0 ? '+' : ''}${p.pts}</td></tr>`).join('')}</table>
     <p><b style="color:var(--text)">What would the steward have done?</b> Left the nets dry, and head office sent its own trawler twice before the fleet went bankrupt. That typically ends around
       <b style="color:var(--text)">${st.score}</b> points: biodiversity ${pct(st.bio)}, no quota delivered.</p>
+    <p class="seedline">This was ocean <b>${SEED}</b>. <a href="?seed=${SEED}">Play this ocean again</a>, or send the link to someone: the same seed starts the same ocean.</p>
     <div class="actions"><button id="again" class="on">Play again</button><button id="toSandbox">Sandbox</button></div>`;
   endEl.hidden = false;
   document.getElementById('again').onclick = () => newGame('run');

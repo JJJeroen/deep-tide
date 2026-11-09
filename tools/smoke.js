@@ -182,9 +182,68 @@ async function desktop(b) {
   await p.waitForFunction(() => !document.getElementById('end').hidden, null, { timeout: 15000 }).catch(() => {});
   check('run: end screen appears after 10:00', await p.isVisible('#end'));
   check('run: end screen has a verdict', await count(p, () => document.getElementById('endCard').innerText.trim().length > 40));
+  check('run: end screen names the ocean and links to it', await count(p, () => /^[0-9a-z]{6}$/.test(SEED) && document.getElementById('endCard').innerText.includes('ocean ' + SEED + '.') && !!document.querySelector(`#endCard a[href="?seed=${SEED}"]`)));
   await shot(p, '4-end');
   errorCheck('run');
   await p.close();
+}
+
+// M9 seeded oceans: the same seed starts the same ocean, in the page and headless (tune.js loads sim.js the same way)
+const FP = `(() => { let h = 0, d = 0; for (const a of S.agents) h = (h * 31 + Math.round(a.x * 1000) + Math.round(a.y * 7)) % 1e15;
+  for (const a of D.agents) d = (d * 31 + Math.round(a.x * 1000)) % 1e15; return JSON.stringify({ n: S.agents.length, c: S.counts, h, dn: D.agents.length, d }); })()`;
+const SEEDED = (seed, n = 900) => `(() => { resetWorld(${JSON.stringify(seed)}); resetDeep(); S.temp = 0.5; for (let i = 0; i < ${n}; i++) { step(1 / 30); stepDeep(1 / 30); } return ${FP}; })()`;
+function simContext(math = Math) {
+  const vm = require('vm'), ctx = vm.createContext({ Math: math, console });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'sim.js'), 'utf8') + '\n' + fs.readFileSync(path.join(ROOT, 'deep.js'), 'utf8'), ctx);
+  return { ctx, run: code => vm.runInContext(code, ctx) };
+}
+const headless = (seed, n) => simContext().run(SEEDED(seed, n));
+// every tool path, headless, with a Math whose random() throws: nothing in sim.js or deep.js may still call it
+function noMathRandom() {
+  const math = Object.create(Math, { random: { value: () => { throw new Error('Math.random called by the sim'); } } });
+  const { run } = simContext(math);
+  try {
+    run(`resetWorld('tools'); resetDeep(); startRun();
+      const act = { 30: () => startTrawl(450), 90: () => { EXCLUDER.on = true; startTrawl(790); }, 150: () => loseNet(700, 300), 180: () => releaseInvaders(800, 300),
+        210: () => spawnMany(INVADER, 400, 300, 3), 240: () => setMpa(0, 400), 300: () => { for (const g of S.ghosts.slice()) retrieveGhost(g); } };
+      for (let k = 0; k < 30 * 330; k++) {
+        if (act[k / 30]) act[k / 30]();
+        if (k % 30 === 0) netAt(1000, 300, 50);
+        if (k >= 30 * 100 && k < 30 * 110) dumpAt(800, 220, 1 / 30, 'runoff');
+        if (k >= 30 * 120 && k < 30 * 125) dumpAt(500, 400, 1 / 30, 'plastic');
+        step(1 / 30); stepDeep(1 / 30);
+      }`);
+    return '';
+  } catch (e) { return e.message; }
+}
+async function seeds(b) {
+  console.log('seeded oceans');
+  const p = await openPage(b, 1280, 720);
+  await p.click('[data-mode=sandbox]'); await wait(p, 300);
+  const a = await p.evaluate(SEEDED('smoke-1')), a2 = await p.evaluate(SEEDED('smoke-1')), c = await p.evaluate(SEEDED('smoke-2'));
+  check('seed: the same seed gives the same ocean after 30 s (sunlit and deep)', a === a2);
+  check('seed: another seed gives another ocean', a !== c);
+  check('seed: the page and headless node agree on the same seed', a === headless('smoke-1'), a.slice(0, 60));
+  const leak = noMathRandom();
+  check('seed: no sim or deep code path calls Math.random (every tool, headless, 5.5 min)', !leak, leak);
+  const twoFresh = await p.evaluate(() => { newGame('run'); const s1 = SEED; newGame('run'); return s1 !== SEED && /^[0-9a-z]{6}$/.test(SEED); });
+  check('seed: without ?seed= every new game gets a fresh six-character seed', twoFresh);
+  errorCheck('seed');
+  await p.close();
+  // ?seed= in the URL: cleaned to a-z 0-9 '-', and every game on the page starts from it
+  const q = await b.newPage({ viewport: { width: 1280, height: 720 } });
+  q.on('pageerror', e => errors.push(String(e)));
+  await q.goto(URL + '?seed=Reef-7%3Cb%3E'); await q.click('[data-mode=run]'); await wait(q, 200);
+  check('seed: ?seed= is cleaned and used', (await count(q, () => SEED)) === 'reef-7b', await count(q, () => SEED));
+  const same = await q.evaluate(`(() => { newGame('run'); const f1 = ${FP}; newGame('run'); return f1 === ${FP}; })()`);
+  check('seed: with ?seed= every new game starts the same ocean', same);
+  // real frames: the page runs on its own for a few seconds, so anything drawing on the sim's stream per frame would show
+  await q.evaluate(() => newGame('sandbox')); await wait(q, 3000);
+  const live = await q.evaluate(`(() => { paused = true; return { n: Math.round(S.t * 30), f: ${FP} }; })()`);
+  const ref = simContext(); ref.run(`resetWorld('reef-7b'); resetDeep(); S.temp = 0.5;`);
+  check('seed: a page left running on real frames matches headless node step for step', live.n > 30 && live.f === ref.run(`(() => { for (let i = 0; i < ${live.n}; i++) { step(1 / 30); stepDeep(1 / 30); } return ${FP}; })()`), live.n + ' steps');
+  errorCheck('seed url');
+  await q.close();
 }
 
 async function phone(b) {
@@ -204,7 +263,7 @@ async function phone(b) {
 
 (async () => {
   const b = await chromium.launch({ executablePath: browserPath(), args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
-  try { await desktop(b); await phone(b); }
+  try { await desktop(b); await seeds(b); await phone(b); }
   catch (e) { check('test ran to the end', false, e.message.split('\n')[0]); }
   finally { await b.close(); }
   const failed = results.filter(r => !r.ok);

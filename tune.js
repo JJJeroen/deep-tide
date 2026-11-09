@@ -6,6 +6,11 @@
 //              trawlmpa | bottommpa (the same harm, with a protected area over the reef third from t = 0: what does it save?)
 //              anthro (scored run, played by bots: see BOT_LIB below; bot=name|all)
 //   rescue=on|off overrides RESCUE_ENABLED from sim.js for this run (default: whatever sim.js says).
+//   seed=S  M9: run 0 uses seed S, run i uses S-i (so any single run can be rerun exactly: seed=S-i with 1 run). In anthro every
+//           bot plays the same seeds, so bots are compared on the same oceans, and each bot's lowest and highest run is printed
+//           with its seed. Default: a fresh batch seed, printed in the header. Seeds are cleaned like the page's ?seed= (a-z 0-9 -),
+//           so a run seed opens in the page as ?seed=S-i, and the seed on the page's end screen works here:
+//           `anthro bot=steward seed=<that>` is exactly the run a player who touched nothing would have had (same engine, V8).
 //   env TUNE_PATCH='SPECIES[IDX.shark].meta = 0.5'  JS evaluated in the sim context before reset, for parameter sweeps.
 //   env TUNE_JOBS=n  parallel worker threads (default: number of CPUs, max runs).
 // Reports per native species: % of time at zero, mean count, births, and rescue/recolonization arrivals,
@@ -70,7 +75,7 @@ function loadSim() {
   return patched;
 }
 
-function run(seconds, scenario, rescue, patch) {
+function run(seconds, scenario, rescue, patch, seed) {
   const sim = loadSim();
   const T = { births: [], arrivals: [], eaten: [], starved: [], old: [] };
   const ctx = vm.createContext({ Math, T, console });
@@ -80,7 +85,7 @@ function run(seconds, scenario, rescue, patch) {
   if (rescue !== undefined) vm.runInContext(`RESCUE_ENABLED = ${rescue};`, ctx);
   if (patch) vm.runInContext(patch, ctx);
   const harm = HARMS[scenario];
-  vm.runInContext(`resetWorld(); S.temp = ${scenario === 'cold' ? 0.2 : scenario === 'hot' ? 0.75 : harm && harm.temp || 0.5};`, ctx);
+  vm.runInContext(`resetWorld(${JSON.stringify(seed)}); S.temp = ${scenario === 'cold' ? 0.2 : scenario === 'hot' ? 0.75 : harm && harm.temp || 0.5};`, ctx);
   if (harm && harm.setup) vm.runInContext(harm.setup, ctx);
   const STEP = new vm.Script('step(1/30)');
   const steps = Math.round(seconds * 30), zero = new Array(N).fill(0), sum = new Array(N).fill(0), series = [], wq = [];
@@ -127,7 +132,7 @@ function run(seconds, scenario, rescue, patch) {
   const wqAfter = harm ? wq.slice(harm.at) : wq;
   const water = { low: Math.min(...wqAfter.map(w => w[0])), hyp: Math.max(...wqAfter.map(w => w[1])), hypS: wqAfter.filter(w => w[1] > 0.01).length,
     bloom: Math.max(...wqAfter.map(w => w[2])), back: (() => { const lo = wqAfter.reduce((m, w, j) => w[0] < wqAfter[m][0] ? j : m, 0); return wqAfter.findIndex((w, j) => j > lo && w[0] > 0.95 && w[1] === 0); })() };
-  return { water, names, native, zero: zero.map(z => z / samples), mean: sum.map(s => s / samples), max, atCap, cv, T, harmStats, end: series[series.length - 1], series: process.env.TUNE_TRACE ? series : null,
+  return { seed, water, names, native, zero: zero.map(z => z / samples), mean: sum.map(s => s / samples), max, atCap, cv, T, harmStats, end: series[series.length - 1], series: process.env.TUNE_TRACE ? series : null,
     zeroBy: names.map((_, i) => Array.from({ length: Math.ceil(series.length / 300) }, (_, b) => series.slice(b * 300, b * 300 + 300).filter(c => c[i] === 0).length)) };
 }
 
@@ -136,7 +141,7 @@ function run(seconds, scenario, rescue, patch) {
 // ballast = releaseInvaders() once a ship is in port.
 //   node tune.js 0 10 anthro [bot=steward|light|measured|grazers|careful|greedy|plunder|ballast1|dumper|farmer|industry|reserve|excluder|tidy|all]   (seconds are fixed by RUN.DUR)
 const BOT_LIB = `
-var BOT = { last: {} };
+var BOT = { last: {}, rand: Math.random }; // rand: the bot's own stream of the run's seed (set in runAnthro)
 function every(key, s) { if (S.t - (BOT.last[key] ?? -1e9) >= s) { BOT.last[key] = S.t; return true; } return false; }
 function protNear(x, y, r) { for (const o of S.agents) if (!o.dead && RUN_PROTECTED[o.t] && Math.hypot(o.x - x, o.y - y) < r) return true; return false; }
 // best of a few candidate net spots (centred on random animals of the wanted kinds); avoid = skip spots with protected animals
@@ -146,7 +151,7 @@ function netSpot(kinds, avoid, spare) {
   let best = null, bv = 0;
   const mob = S.agents.filter(a => !a.dead && kinds.includes(a.t) && !inMpa(a.x)); // the net takes nothing inside a protected area
   for (let k = 0; k < 10 && mob.length; k++) {
-    const c = mob[(Math.random() * mob.length) | 0];
+    const c = mob[(BOT.rand() * mob.length) | 0];
     if (avoid && protNear(c.x, c.y, 50)) continue;
     if (spare && spareNear(c.x, c.y, 50, spare)) continue;
     let v = 0;
@@ -197,17 +202,17 @@ const BOTS = {
 `;
 const ANTHRO_BOTS = ['steward', 'light', 'measured', 'grazers', 'careful', 'greedy', 'plunder', 'ballast1', 'dumper', 'farmer', 'industry', 'reserve', 'excluder', 'tidy'];
 
-function runAnthro(bot, rescue, patch) {
+function runAnthro(bot, rescue, patch, seed) {
   const z = () => new Array(32).fill(0); // instrumentation sink (unused here)
   const ctx = vm.createContext({ Math, console, T: { births: z(), arrivals: z(), starved: z(), old: z(), eaten: Array.from({ length: 32 }, z) } });
   vm.runInContext(loadSim(), ctx);
   vm.runInContext(BOT_LIB, ctx);
   if (rescue !== undefined) vm.runInContext(`RESCUE_ENABLED = ${rescue};`, ctx);
   if (patch) vm.runInContext(patch, ctx);
-  vm.runInContext('resetWorld(); startRun();', ctx);
+  vm.runInContext(`resetWorld(${JSON.stringify(seed)}); BOT.rand = makeRng(SEED + '/bot'); startRun();`, ctx);
   const STEP = new vm.Script(`BOTS.${bot}(); step(1/30);`);
   for (let k = 0; !vm.runInContext('S.game.over', ctx) && k < 30 * 3600; k++) STEP.runInContext(ctx);
-  return vm.runInContext('S.game.result', ctx);
+  return { ...vm.runInContext('S.game.result', ctx), seed };
 }
 
 if (!isMainThread) {
@@ -219,32 +224,34 @@ if (!isMainThread) {
   const rescue = kv.rescue === undefined ? undefined : kv.rescue === 'on';
   const patch = process.env.TUNE_PATCH || '';
   const jobs = Math.min(runs, +process.env.TUNE_JOBS || os.cpus().length);
+  const batchSeed = (kv.seed || '').toLowerCase().replace(/[^a-z0-9-]/g, '') || Math.floor(Math.random() * 36 ** 6).toString(36).padStart(6, '0');
+  const seedOf = i => i === 0 ? batchSeed : batchSeed + '-' + i;
   if (scenario === 'anthro') {
     const bots = !kv.bot || kv.bot === 'all' ? ANTHRO_BOTS : kv.bot.split(',');
     if (bots.some(b => !ANTHRO_BOTS.includes(b))) { console.error('unknown bot ' + kv.bot); process.exit(1); }
-    const queue = bots.flatMap(b => Array.from({ length: runs }, () => b)), out = {};
+    const queue = bots.flatMap(b => Array.from({ length: runs }, (_, i) => [b, i])), out = {};
     let qi = 0;
-    const one = b => new Promise((res, rej) => {
-      const w = new Worker(__filename, { workerData: ['anthro', b, rescue, patch] });
+    const one = ([b, i]) => new Promise((res, rej) => {
+      const w = new Worker(__filename, { workerData: ['anthro', b, rescue, patch, seedOf(i)] });
       w.once('message', m => { (out[b] = out[b] || []).push(m); res(); }); w.once('error', rej);
     });
     const lane = async () => { while (qi < queue.length) await one(queue[qi++]); };
     Promise.all(Array.from({ length: Math.min(queue.length, +process.env.TUNE_JOBS || os.cpus().length) }, lane))
-      .then(() => reportAnthro(out, bots, runs, patch));
+      .then(() => reportAnthro(out, bots, runs, patch, batchSeed));
     return;
   }
   if (!['idle', 'cold', 'hot', ...Object.keys(HARMS)].includes(scenario)) { console.error('unknown scenario ' + scenario); process.exit(1); }
   const R = [];
   let next = 0;
-  const one = () => new Promise((res, rej) => {
-    const w = new Worker(__filename, { workerData: [seconds, scenario, rescue, patch] });
-    w.once('message', m => { R.push(m); res(); }); w.once('error', rej);
+  const one = i => new Promise((res, rej) => {
+    const w = new Worker(__filename, { workerData: [seconds, scenario, rescue, patch, seedOf(i)] });
+    w.once('message', m => { R[i] = m; res(); }); w.once('error', rej);
   });
-  const lane = async () => { while (next < runs) { next++; await one(); } };
-  Promise.all(Array.from({ length: jobs }, lane)).then(() => report(R, seconds, runs, scenario, rescue, patch));
+  const lane = async () => { while (next < runs) await one(next++); };
+  Promise.all(Array.from({ length: jobs }, lane)).then(() => report(R, seconds, runs, scenario, rescue, patch, batchSeed));
 }
 
-function report(R, seconds, runs, scenario, rescue, patch) {
+function report(R, seconds, runs, scenario, rescue, patch, seed) {
   const { names, native } = R[0];
   if (process.env.TUNE_TRACE) { // env TUNE_TRACE=20: print the first run's counts every 20 s
     const every = +process.env.TUNE_TRACE;
@@ -252,7 +259,7 @@ function report(R, seconds, runs, scenario, rescue, patch) {
     R[0].series.forEach((c, t) => { if (t % every === 0) console.log(String(t).padStart(5) + ' ' + c.map(v => String(v).padStart(7)).join('')); });
   }
   const avg = f => R.reduce((a, x) => a + f(x), 0) / R.length;
-  console.log(`scenario=${scenario} ${seconds}s x ${runs} runs  rescue=${rescue === undefined ? 'default' : rescue ? 'on' : 'off'}${patch ? '  patch: ' + patch : ''}`);
+  console.log(`scenario=${scenario} ${seconds}s x ${runs} runs  seed=${seed}  rescue=${rescue === undefined ? 'default' : rescue ? 'on' : 'off'}${patch ? '  patch: ' + patch : ''}`);
   console.log('species      zero%   mean    max  @cap%    cv   births  arrivals  arr/birth       starved  old-age');
   let pass = true;
   for (const i of native) {
@@ -288,8 +295,8 @@ function report(R, seconds, runs, scenario, rescue, patch) {
   } else console.log(pass ? 'M1 ACCEPTANCE: PASS' : 'M1 ACCEPTANCE: not yet');
 }
 
-function reportAnthro(out, bots, runs, patch) {
-  console.log(`scenario=anthro x ${runs} runs per bot${patch ? '  patch: ' + patch : ''}`);
+function reportAnthro(out, bots, runs, patch, seed) {
+  console.log(`scenario=anthro x ${runs} runs per bot  seed=${seed}${patch ? '  patch: ' + patch : ''}`);
   console.log('bot         score  (sd)   min  max | quota%  met/10  delivered  fish  dump runoff ballast | bio%  water%  lost  recov  bycatch  bankrupt | company trips  ghost kills  dead zone%');
   for (const b of bots) {
     const R = out[b], avg = f => R.reduce((a, x) => a + f(x), 0) / R.length;
@@ -304,5 +311,7 @@ function reportAnthro(out, bots, runs, patch) {
     const vs = {}; // which end-of-run verdict line each run got (first words of the line)
     for (const x of R) { const k = x.verdict.split(' ').slice(0, 6).join(' '); vs[k] = (vs[k] || 0) + 1; }
     console.log(' '.repeat(11) + 'verdicts: ' + Object.entries(vs).sort((a, c) => c[1] - a[1]).map(([k, c]) => `"${k}" ${c}`).join(' · '));
+    const lo = R.reduce((a, x) => x.score < a.score ? x : a), hi = R.reduce((a, x) => x.score > a.score ? x : a);
+    console.log(' '.repeat(11) + `lowest ${lo.score} (seed=${lo.seed}) · highest ${hi.score} (seed=${hi.seed})`);
   }
 }

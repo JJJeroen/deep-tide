@@ -47,12 +47,14 @@ const SNOW_E = 5;          // energy per unit of marine snow
 const WHALE = { first: 50, every: [150, 230], fallP: 0.3, speed: 60, huntFor: 40 };
 
 const D = { agents: [], snow: 0, floor: 0, falls: [], bones: [], whale: null, nextWhale: 0, counts: {}, arriveT: {}, t: 0, visits: 0 };
-const drnd = (a, b) => a + Math.random() * (b - a);
+// M9: the deep draws from its own stream of the run's seed (sim.js makeRng), so it never shifts the sunlit sim's random numbers
+let drand = makeRng('/deep');
+const drnd = (a, b) => a + drand() * (b - a);
 
 function makeDeep(k, x, y) {
   const s = DEEP_SP[k];
   return { k, x, y, vx: 0, vy: 0, e: s.max * drnd(0.5, 0.8), age: 0, maxAge: drnd(s.life[0], s.life[1]), cool: drnd(0, s.breed),
-           ph: Math.random() * 6.283, ang: Math.random() * 6.283, dead: false };
+           ph: drand() * 6.283, ang: drand() * 6.283, dead: false };
 }
 function homeY(a) {
   const s = DEEP_SP[a.k];
@@ -63,7 +65,8 @@ function homeY(a) {
   }
   return s.zone[0] + (a.ph / 6.283) * (s.zone[1] - s.zone[0]);
 }
-function resetDeep() {
+function resetDeep(seed = SEED) {
+  drand = makeRng(seed + '/deep');
   D.agents = []; D.falls = []; D.bones = []; D.whale = null; D.nextWhale = WHALE.first; D.t = 0; D.visits = 0;
   D.snow = 400; D.floor = 800; D.arriveT = {};
   for (const k of DEEP_KINDS) for (let i = 0; i < DEEP_SP[k].start; i++) {
@@ -94,7 +97,7 @@ function stepDeep(dt) {
     a.age += dt; a.cool -= dt; a.e -= s.meta * dt;
     if (a.e <= 0 || a.age > a.maxAge) { deepDies(a); continue; }
     let tx = Math.cos(a.ang), ty = 0, sp = s.speed * 0.5;
-    a.ang += (Math.random() - 0.5) * 2 * dt;
+    a.ang += (drand() - 0.5) * 2 * dt;
     if (a.k === 'lantern') {
       const take = Math.min(D.snow, 0.6 * snowRich * dt); D.snow -= take; a.e = Math.min(s.max, a.e + take * SNOW_E);
       const sq = nearestDeep(a.x, a.y, 70, 'squid', a);
@@ -109,12 +112,12 @@ function stepDeep(dt) {
       if (wh) { tx = a.x - wh.x; ty = a.y - wh.y; sp = s.speed * 1.3; }
       else if (prey) {
         tx = prey.x - a.x; ty = prey.y - a.y; sp = s.speed;
-        if (tx * tx + ty * ty < 16 * 16 && Math.random() < 2.5 * dt) { prey.dead = true; D.floor += 4; a.e = Math.min(s.max, a.e + s.gain); }
+        if (tx * tx + ty * ty < 16 * 16 && drand() < 2.5 * dt) { prey.dead = true; D.floor += 4; a.e = Math.min(s.max, a.e + s.gain); }
       }
     } else if (a.k === 'angler') {
       sp = s.speed;
       const prey = nearestDeep(a.x + 10, a.y - 12, 14, 'lantern', a);
-      if (prey && a.e < s.max * 0.9 && Math.random() < 2 * dt) { prey.dead = true; a.e = Math.min(s.max, a.e + s.gain); }
+      if (prey && a.e < s.max * 0.9 && drand() < 2 * dt) { prey.dead = true; a.e = Math.min(s.max, a.e + s.gain); }
     } else { // scavengers on the floor: a whale fall draws them from anywhere along the seabed
       let fall = null, fd = 1e9;
       for (const f of D.falls) { const d = Math.abs(f.x - a.x); if (f.mass > 0 && d < fd) { fd = d; fall = f; } }
@@ -150,7 +153,7 @@ function stepDeep(dt) {
     D.arriveT[k] = (D.arriveT[k] || 0) + dt;
     if (D.arriveT[k] < r.every) continue;
     D.arriveT[k] = 0;
-    const x = Math.random() < 0.5 ? 40 : WW - 40;
+    const x = drand() < 0.5 ? 40 : WW - 40;
     for (let i = 0; i < r.n; i++) { const a = makeDeep(k, x, 0); a.y = homeY(a) + drnd(-30, 30); D.agents.push(a); }
   }
 }
@@ -162,9 +165,9 @@ function stepWhale(dt) {
     D.nextWhale -= dt;
     if (D.nextWhale > 0) return;
     D.nextWhale = drnd(WHALE.every[0], WHALE.every[1]); D.visits++;
-    const fromLeft = Math.random() < 0.5;
+    const fromLeft = drand() < 0.5;
     D.whale = { x: fromLeft ? -200 : WW + 200, y: 22, vx: 0, vy: 0, dir: fromLeft ? 1 : -1, phase: 'surface', pt: 0,
-                dies: Math.random() < WHALE.fallP, target: null };
+                dies: drand() < WHALE.fallP, target: null };
     if (typeof log === 'function') log('A sperm whale is at the surface, breathing before a dive. Scroll down to follow it.', 'good');
     return;
   }
