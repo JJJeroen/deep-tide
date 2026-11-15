@@ -178,6 +178,8 @@ function drawSparks() {
   for (const sp of SPECIES) {
     const cv = document.querySelector('#row' + sp.i + ' .spark'), g = cv.getContext('2d'), W = cv.width, H = cv.height, t = sp.i;
     g.clearRect(0, 0, W, H);
+    // a faint full-width track from the start, so a short early line reads as the start of a chart, not a stray mark
+    g.fillStyle = "rgba(140,210,230,.12)"; g.fillRect(0, H - 2, W, 1.5);
     if (h.length < 2) continue;
     const mx = Math.max(1, S.peak[t]), X = i => i / 299 * W, Y = v => H - 3 - (v / mx) * (H - 6);
     g.lineWidth = 2.5; g.lineJoin = 'round'; g.strokeStyle = COL[t]; g.beginPath();

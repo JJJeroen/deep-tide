@@ -257,12 +257,12 @@ async function phone(b) {
   await p.touchscreen.tap(q.x, q.y); await wait(p, 300);
   check('phone: tapping an animal shows its label', await count(p, () => !!inspect));
   // the species panel is a strip of dots and counts; a tap opens it over the water without moving the column
-  check('phone: species panel starts folded, the column starts under it', await count(p, () =>
-    !document.getElementById('stats').classList.contains('open') && topReserve < 120 && !document.querySelector('#row0 .nm').offsetParent), 'top ' + await count(p, () => topReserve));
+  check('phone: species panel starts folded (names, no sparklines), the column starts under it', await count(p, () =>
+    !document.getElementById('stats').classList.contains('open') && topReserve < 120 && !document.querySelector('#row0 .spark').offsetParent && !!document.querySelector('#row0 .nm').offsetParent), 'top ' + await count(p, () => topReserve));
   const top0 = await count(p, () => topReserve);
   await p.tap('#stats'); await wait(p, 300);
   check('phone: a tap opens the species panel over the water', await count(p, () =>
-    document.getElementById('stats').classList.contains('open') && !!document.querySelector('#row0 .nm').offsetParent) && (await count(p, () => topReserve)) === top0);
+    document.getElementById('stats').classList.contains('open') && !!document.querySelector('#row0 .spark').offsetParent) && (await count(p, () => topReserve)) === top0);
   await p.tap('#stats'); await wait(p, 200);
   // settings fold behind More; locked controls are hidden, not greyed out
   check('phone: Hints, Sound, Pause, Reset, Menu fold behind More', await count(p, () => ['hintsBtn', 'soundBtn', 'pause', 'reset', 'menuBtn'].every(id => !document.getElementById(id).offsetParent)));
