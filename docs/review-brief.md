@@ -2,7 +2,7 @@
 
 For the blind design review (design-review skill, section 6). The reviewer sees this file and the screenshots, nothing else.
 
-> DRAFT, 2026-11-15: written from the project notes, not yet confirmed by the owner. Check "Decided on purpose" first.
+Confirmed by the owner 2026-11-15.
 
 ## What it is and who it is for
 
@@ -23,6 +23,8 @@ It is for curious players, teens and adults, on a desktop or a phone. The point 
 - The deep and the night are meant to be very dark. Light comes from animals and boats only.
 - Each animal keeps one bright accent in the colour of its dot in the "Life in the water" panel; the rest of it is in natural colours.
 - The panels sit on top of the ocean: title top left, species panel top right, toolbar at the bottom.
+- The seabed: a reef shelf on the left that falls away into a drop-off on the right. The bare slope is the drop-off, not missing content.
+- Jellyfish glow, by day too, and a jellyfish bloom is allowed to look beautiful.
 
 ## Shots
 

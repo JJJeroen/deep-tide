@@ -157,7 +157,7 @@ function updateUI() {
   while (logShown < S.events.length) {
     const e = S.events[logShown++], d = document.createElement('div');
     d.textContent = e.msg; d.className = e.kind; logEl.appendChild(d);
-    while (logEl.children.length > 5) logEl.removeChild(logEl.firstChild);
+    while (logEl.children.length > 4) logEl.removeChild(logEl.firstChild); // a short stack: older lines make way
     setTimeout(() => { d.style.opacity = 0; setTimeout(() => d.remove(), 1600); }, 11000);
   }
 }

@@ -26,19 +26,34 @@ function browserPath() {
   return undefined;
 }
 
-// Runs before the game's scripts: seeded Math.random, and a clock that only moves when __pump() is called.
+// Runs before the game's scripts: seeded Math.random, and a clock (with its timers) that only moves when __pump()
+// or __skip() is called.
 const CLOCK = () => {
   let a = 20261115;
   Math.random = () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-  let now = 0, queue = [];
+  let now = 0, queue = [], timers = [], tid = 0;
   performance.now = () => now;
   Date.now = () => 1767268800000 + now;
   window.requestAnimationFrame = cb => queue.push(cb);
   window.cancelAnimationFrame = () => {};
+  // the log fades its lines on timers: on the virtual clock they fade after 11 game seconds, as in real play
+  window.setTimeout = (fn, ms = 0, ...args) => { timers.push({ id: ++tid, at: now + ms, fn, args }); return tid; };
+  window.clearTimeout = id => { timers = timers.filter(t => t.id !== id); };
+  const fire = () => {
+    for (;;) {
+      timers.sort((p, q) => p.at - q.at || p.id - q.id);
+      if (!timers.length || timers[0].at > now) return;
+      const t = timers.shift(); t.fn(...t.args);
+    }
+  };
   // draw n frames at 30 fps; each frame advances the game exactly as the real loop would
-  window.__pump = n => { for (let i = 0; i < n; i++) { now += 1000 / 30; const cbs = queue; queue = []; for (const cb of cbs) cb(now); } };
-  // advance the sim (and the deep) by s seconds without drawing, then let the scene catch up
-  window.__skip = s => { for (let i = 0; i < s * 30 && !S.game.over; i++) { step(1 / 30); stepDeep(1 / 30); } stepReefFilm(s); stepFleet(s); };
+  window.__pump = n => { for (let i = 0; i < n; i++) { now += 1000 / 30; fire(); const cbs = queue; queue = []; for (const cb of cbs) cb(now); } };
+  // advance the sim (and the deep) by s seconds without drawing; the log still takes its lines as they happen and
+  // fades them on time. Then the scene catches up.
+  window.__skip = s => {
+    for (let i = 0; i < s * 30 && !S.game.over; i++) { step(1 / 30); stepDeep(1 / 30); now += 1000 / 30; fire(); if (i % 15 === 14) updateUI(); }
+    stepReefFilm(s); stepFleet(s);
+  };
 };
 
 const DESKTOP = { viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 };

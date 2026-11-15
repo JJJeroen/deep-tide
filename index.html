@@ -43,8 +43,9 @@
   #deep .h { text-transform: uppercase; letter-spacing: .12em; font-weight: 600; }
   #deep b { color: var(--text); font-weight: 600; }
   #depthBtn { right: 12px; bottom: 110px; padding: 8px 12px; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; z-index: 4; }
-  #log div { margin: 2px 0; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.9), 0 0 2px #000; transition: opacity 1.5s; } /* readable on the pale sky too */
-  #log .warn { color: var(--danger); }
+  /* each line on its own dark backing: readable over the pale sky, a green bloom and the night alike (red text ~5:1) */
+  #log div { display: table; margin: 0 auto 4px; padding: 3px 10px; background: rgba(6, 22, 36, 0.88); border: 1px solid var(--line); border-radius: 8px; transition: opacity 1.5s; }
+  #log .warn { color: var(--danger); font-weight: 600; } /* weight as well as colour */
   #log .good { color: var(--accent); }
   #bar { bottom: 12px; left: 50%; transform: translateX(-50%); width: max-content; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); }
   button { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
@@ -120,7 +121,7 @@
   .card .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .card .actions[hidden] { display: none; }
   .card .seedline { font-size: 12px; margin-top: 12px; } .card .seedline b { color: var(--text); font-weight: 600; letter-spacing: .04em; } .card .seedline a { color: var(--accent); }
-  @media (max-width: 760px) { #bio, #title p { display: none; } #stats { width: 160px; } #log { left: 12px; transform: none; width: calc(100vw - 196px); text-align: left; font-size: 12px; } }
+  @media (max-width: 760px) { #bio, #title p { display: none; } #stats { width: 160px; } #log { left: 12px; transform: none; width: calc(100vw - 196px); text-align: left; font-size: 12px; } #log div { margin-left: 0; } }
   @media (max-width: 760px) { #hud .clock small { display: none; } #hud .clock { flex-wrap: wrap; gap: 0 8px; } }
   @media (max-width: 640px) { .modes { grid-template-columns: 1fr; } }
   @media (max-width: 760px) { #bar { gap: 4px; padding: 8px; } #bar button, #bar select { padding: 6px 8px; } #bar .sep { margin: 0 1px; } input[type=range] { width: 70px; } }
