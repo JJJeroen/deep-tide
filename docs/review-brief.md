@@ -40,3 +40,5 @@ It is for curious players, teens and adults, on a desktop or a phone. The point 
 | 06-deep-desktop | Scrolled down to 1000 m, the midnight zone |
 | 07-end-screen-desktop | The end of an Anthropocene run in which the player did nothing |
 | 08-reef-day-phone | Sandbox on a phone (390 x 844), daytime |
+| 09-run-phone | An Anthropocene run on a phone, 2.5 minutes in, at night |
+| 10-dead-zone-on-reef-desktop | Farm runoff 4 minutes later: the dead zone has sunk onto the reef |
