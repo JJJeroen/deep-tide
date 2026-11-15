@@ -11,12 +11,19 @@ const drag = { on: false, sy: 0, cy: 0 }; // dragging with the Watch tool scroll
 const cam = { y: -SKY, target: -SKY };
 // Screen space the panels take: on a portrait phone the column starts below the species panel (as the sea did before),
 // and the camera always scrolls far enough that the abyssal floor clears the toolbar.
-let topReserve = 0, barH = 0;
+// On a portrait phone the species panel is folded to a strip (index.html); opened, it lies over the water and the
+// column stays where the strip put it.
+let topReserve = 0, barH = 0, stripBottom = 0;
 function measureChrome() {
   const bar = document.getElementById('bar'), st = document.getElementById('stats'), db = document.getElementById('depthBtn');
+  const tt = document.getElementById('title'), portrait = innerWidth <= 760 && innerHeight > innerWidth && st && tt;
   barH = bar ? bar.offsetHeight + 12 : 0; // read everything first, then write, so no extra layout is forced
-  topReserve = innerWidth <= 760 && innerHeight > innerWidth && st ? Math.round(st.getBoundingClientRect().bottom) + 6 : 0;
+  const titleR = portrait ? tt.getBoundingClientRect() : null;
+  if (portrait && !st.classList.contains('open')) stripBottom = st.getBoundingClientRect().bottom;
+  topReserve = portrait ? Math.round(Math.max(titleR.bottom, stripBottom)) + 6 : 0;
   const bottom = (barH + 6) + 'px'; if (db && db.style.bottom !== bottom) db.style.bottom = bottom; // just above the toolbar
+  const mw = portrait ? Math.max(150, Math.round(innerWidth - titleR.right - 20)) + 'px' : ''; // clear of the title
+  if (st && st.style.maxWidth !== mw) st.style.maxWidth = mw;
 }
 const camMax = () => Math.max(-SKY, DEEP_BOTTOM - (innerHeight - barH - 10 - topReserve) / scale);
 const clampCam = y => Math.max(-SKY, Math.min(camMax(), y));

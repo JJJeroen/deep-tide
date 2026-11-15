@@ -75,6 +75,7 @@ const SHOTS = [
     await p.evaluate(() => { __skip(700); if (S.game.over) { paused = true; showEnd(); } __pump(10); });
   }],
   ['08-reef-day-phone', PHONE, async p => { await sandbox(p, true); await p.evaluate(() => { __skip(20); __pump(60); }); }],
+  ['09-run-phone', PHONE, async p => { await p.tap('[data-mode=run]'); await p.evaluate(() => { setHints(false); __skip(150); __pump(60); }); }],
 ];
 
 async function sandbox(p, tap) {

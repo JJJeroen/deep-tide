@@ -400,11 +400,12 @@ function drawTrawlerDecks(t) {
 function drawRuler() {
   const fs = Math.max(11, 9.5 / scale);
   ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  const tick = (y, label) => { ctx.fillStyle = 'rgba(214,234,240,.32)'; ctx.fillRect(0, y, 12, 1.5); ctx.fillStyle = 'rgba(214,234,240,.5)'; ctx.fillText(label, 16, y); };
+  const under = y => oy + y * scale > innerHeight - barH; // a label behind the toolbar would peek out beside it
+  const tick = (y, label) => { if (under(y)) return; ctx.fillStyle = 'rgba(214,234,240,.32)'; ctx.fillRect(0, y, 12, 1.5); ctx.fillStyle = 'rgba(214,234,240,.5)'; ctx.fillText(label, 16, y); };
   for (let m = 10; m <= 40; m += 10) tick(m / DEPTH_M * WH, m + ' m'); // 50 m would sit on the reef shelf
   // the deep, on its compressed scale (deep.js depthAt), with the zones named where they begin
   for (const m of [200, 500, 1000, 2000, 3000]) tick(yAtDepth(m), m + ' m');
   ctx.font = `600 ${fs * 0.85}px ui-sans-serif, system-ui, sans-serif`; ctx.fillStyle = 'rgba(214,234,240,.32)';
-  for (const [m, z] of [[200, 'TWILIGHT ZONE'], [1000, 'MIDNIGHT ZONE'], [3000, 'ABYSS']]) ctx.fillText(z, 16, yAtDepth(m) + fs * 1.2);
+  for (const [m, z] of [[200, 'TWILIGHT ZONE'], [1000, 'MIDNIGHT ZONE'], [3000, 'ABYSS']]) if (!under(yAtDepth(m) + fs * 1.2)) ctx.fillText(z, 16, yAtDepth(m) + fs * 1.2);
   ctx.textBaseline = 'alphabetic';
 }

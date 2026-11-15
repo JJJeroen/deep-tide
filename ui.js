@@ -151,8 +151,9 @@ function updateUI() {
     measureChrome(); updateDepthBtn();
     drawSparks();
     coachTick();
-    // narrow screens: the log sits under the title panel (whose height changes with the run HUD) instead of over it
-    logEl.style.top = innerWidth <= 760 ? Math.round(titleEl.getBoundingClientRect().bottom + 8) + 'px' : '';
+    // narrow screens: the log sits under the title panel (whose height changes with the run HUD) instead of over it;
+    // on a portrait phone, at the top of the water under both panels
+    logEl.style.top = topReserve ? topReserve + 6 + 'px' : innerWidth <= 760 ? Math.round(titleEl.getBoundingClientRect().bottom + 8) + 'px' : '';
   }
   while (logShown < S.events.length) {
     const e = S.events[logShown++], d = document.createElement('div');
@@ -217,6 +218,15 @@ document.getElementById('hintsBtn').addEventListener('click', () => setHints(!hi
 setHints(hintsOn);
 document.getElementById('soundBtn').addEventListener('click', () => setSound(!SOUND.on, true));
 setSound(SOUND.on);
+// narrow screens: More unfolds the settings (index.html .opt); portrait phones: a tap on the species strip opens the panel
+document.getElementById('moreBtn').addEventListener('click', e => {
+  const open = document.getElementById('bar').classList.toggle('more'); e.currentTarget.setAttribute('aria-expanded', String(open));
+});
+const statsEl = document.getElementById('stats');
+statsEl.addEventListener('click', () => {
+  if (innerWidth > 760 || innerHeight <= innerWidth) return;
+  statsEl.classList.toggle('open'); measureChrome();
+});
 // first visit: point new players at the tutorial
 if (!store.get('deeptide.learned')) document.querySelector('[data-mode=learn]').classList.add('first');
 

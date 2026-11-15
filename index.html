@@ -125,6 +125,23 @@
   @media (max-width: 760px) { #hud .clock small { display: none; } #hud .clock { flex-wrap: wrap; gap: 0 8px; } }
   @media (max-width: 640px) { .modes { grid-template-columns: 1fr; } }
   @media (max-width: 760px) { #bar { gap: 4px; padding: 8px; } #bar button, #bar select { padding: 6px 8px; } #bar .sep { margin: 0 1px; } input[type=range] { width: 70px; } }
+  /* narrow screens: the settings fold behind More, so the toolbar takes a row less */
+  #moreBtn { display: none; }
+  @media (max-width: 760px) { #moreBtn { display: inline-block; } #bar:not(.more) .opt { display: none; } #bar .sep { display: none; }
+    #bar:not(.more) #pause.on { display: inline-block; } /* paused: Resume stays in reach */
+    #bar button:disabled, #bar select:disabled, #bar label:has(input:disabled) { display: none; } } /* locked in this mode (the run HUD shows the warmth) */
+  /* portrait phones: the species panel folds to one strip of dots and counts, so the ocean starts near the top of the
+     screen; a tap opens the full panel over the water. Its max-width (ui/render: measureChrome) keeps it clear of the title. */
+  @media (max-width: 760px) and (orientation: portrait) {
+    #stats { cursor: pointer; }
+    #stats:not(.open) { width: auto; padding: 8px 10px; }
+    #stats:not(.open) h2, #stats:not(.open) #deep, #stats:not(.open) .nm, #stats:not(.open) .spark { display: none; }
+    #stats:not(.open) #rows { display: flex; flex-wrap: wrap; gap: 3px 10px; }
+    #stats:not(.open) .row { gap: 4px; padding: 0; }
+    #stats:not(.open) .row .n { min-width: 0; margin-left: 0; }
+    #stats.open { width: 100vw; } /* as wide as its max-width allows */
+    #log { width: calc(100vw - 24px); }
+  }
 </style>
 </head>
 <body>
@@ -165,12 +182,13 @@
   <span class="sep"></span>
   <label class="s">Warmth <input type="range" id="temp" min="0" max="100" value="50"></label>
   <span class="sep"></span>
-  <button id="hintsBtn" title="Hints (H)" aria-pressed="true">Hints</button>
-  <button id="soundBtn" title="Sound (M): every species is one note in the chord; a lost species goes silent" aria-pressed="true">Sound</button>
-  <button id="pause">Pause</button>
+  <button id="hintsBtn" class="opt" title="Hints (H)" aria-pressed="true">Hints</button>
+  <button id="soundBtn" class="opt" title="Sound (M): every species is one note in the chord; a lost species goes silent" aria-pressed="true">Sound</button>
+  <button id="pause" class="opt">Pause</button>
   <button id="speed">1×</button>
-  <button id="reset">Reset</button>
-  <button id="menuBtn">Menu</button>
+  <button id="reset" class="opt">Reset</button>
+  <button id="menuBtn" class="opt">Menu</button>
+  <button id="moreBtn" aria-expanded="false" title="Hints, sound, pause, reset and the menu">More</button>
 </div>
 
 <div class="overlay" id="menu">

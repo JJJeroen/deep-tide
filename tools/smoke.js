@@ -256,6 +256,21 @@ async function phone(b) {
   const q = await count(p, () => { const a = S.agents.find(a => !a.dead && a.t !== PLANKTON && a.y > 40); return { x: ox + a.x * scale, y: oy + a.y * scale }; });
   await p.touchscreen.tap(q.x, q.y); await wait(p, 300);
   check('phone: tapping an animal shows its label', await count(p, () => !!inspect));
+  // the species panel is a strip of dots and counts; a tap opens it over the water without moving the column
+  check('phone: species panel starts folded, the column starts under it', await count(p, () =>
+    !document.getElementById('stats').classList.contains('open') && topReserve < 120 && !document.querySelector('#row0 .nm').offsetParent), 'top ' + await count(p, () => topReserve));
+  const top0 = await count(p, () => topReserve);
+  await p.tap('#stats'); await wait(p, 300);
+  check('phone: a tap opens the species panel over the water', await count(p, () =>
+    document.getElementById('stats').classList.contains('open') && !!document.querySelector('#row0 .nm').offsetParent) && (await count(p, () => topReserve)) === top0);
+  await p.tap('#stats'); await wait(p, 200);
+  // settings fold behind More; locked controls are hidden, not greyed out
+  check('phone: Hints, Sound, Pause, Reset, Menu fold behind More', await count(p, () => ['hintsBtn', 'soundBtn', 'pause', 'reset', 'menuBtn'].every(id => !document.getElementById(id).offsetParent)));
+  await p.tap('#moreBtn'); await wait(p, 200);
+  check('phone: More shows them', await count(p, () => ['hintsBtn', 'soundBtn', 'pause', 'reset', 'menuBtn'].every(id => !!document.getElementById(id).offsetParent)));
+  await p.tap('#pause'); await p.tap('#moreBtn'); await wait(p, 200);
+  check('phone: paused, Resume stays in reach with More folded', await count(p, () => paused && !!document.getElementById('pause').offsetParent));
+  await p.tap('#pause'); await wait(p, 100);
   await shot(p, '5-phone');
   errorCheck('phone');
   await p.close();
