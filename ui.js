@@ -50,6 +50,8 @@ function newGame(m) {
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
   const seed = URL_SEED || freshSeed();
+  // refit the scale to this mode's panels (render.js measureChrome), with the More drawer folded
+  fitKey = ''; foldMore();
   resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null;
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
@@ -158,9 +160,10 @@ function updateUI() {
     measureChrome(); updateDepthBtn();
     drawSparks();
     coachTick();
-    // narrow screens: the log sits under the title panel (whose height changes with the run HUD) instead of over it;
-    // on a portrait phone, at the top of the water under both panels
-    logEl.style.top = topReserve ? topReserve + 6 + 'px' : innerWidth <= 760 ? Math.round(titleEl.getBoundingClientRect().bottom + 8) + 'px' : '';
+    // the log sits just under the waterline (camera at the top), clear of the boats on the surface; narrow screens: also
+    // under the title panel (whose height changes with the run HUD) instead of over it
+    const wl = Math.round(topReserve + SKY * scale + 8);
+    logEl.style.top = (innerWidth <= 760 && !topReserve ? Math.max(wl, Math.round(titleEl.getBoundingClientRect().bottom + 8)) : wl) + 'px';
   }
   while (logShown < S.events.length) {
     const e = S.events[logShown++], d = document.createElement('div');
@@ -200,7 +203,9 @@ function setTool(t) {
   if (t === 'stock' && mode === 'run') return; // locked in the scored run
   tool = t;
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  document.getElementById('hint').textContent = (mode === 'run' ? HINTS_RUN : HINTS)[t === 'pollute' && POLL_KIND === 'runoff' ? 'runoff' : t];
+  document.getElementById('hint').textContent = (mode === 'run' ? HINTS_RUN : HINTS)[t === 'pollute' && POLL_KIND === 'runoff' ? 'runoff' : t] + (t === 'watch' && panMode ? ' Drag to look around.' : '');
+  // pan mode: once a game, say how to move the view while a tool has the drag
+  if (panMode && mode && t !== 'watch' && !S.flags.panTip) { S.flags.panTip = true; log(matchMedia('(pointer: coarse)').matches ? 'With a tool picked, two fingers move the view.' : 'With a tool picked, Shift + wheel moves the view sideways.'); }
 }
 function setPollKind(k) { POLL_KIND = k; pollSel.value = k; setTool('pollute'); }
 document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
@@ -231,6 +236,7 @@ setSound(SOUND.on);
 document.getElementById('moreBtn').addEventListener('click', e => {
   const open = document.getElementById('bar').classList.toggle('more'); e.currentTarget.setAttribute('aria-expanded', String(open));
 });
+function foldMore() { document.getElementById('bar').classList.remove('more'); document.getElementById('moreBtn').setAttribute('aria-expanded', 'false'); }
 const statsEl = document.getElementById('stats');
 statsEl.addEventListener('click', () => {
   if (innerWidth > 760 || innerHeight <= innerWidth) return;
@@ -239,17 +245,29 @@ statsEl.addEventListener('click', () => {
 // first visit: point new players at the tutorial
 if (!store.get('deeptide.learned')) document.querySelector('[data-mode=learn]').classList.add('first');
 
+// Two fingers move the view whatever the tool (the first finger's tool stroke stops); one finger with Watch drags it.
+const touches = new Map(), pan2 = { on: false };
+const touchMid = () => { let x = 0, y = 0; for (const t of touches.values()) { x += t.x / touches.size; y += t.y / touches.size; } return { x, y }; };
 view.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch') {
+    if (e.isPrimary) { touches.clear(); pan2.on = false; } // a primary touch means no other finger is down: drop anything stale
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  }
+  if (touches.size >= 2) {
+    const m = touchMid(); Object.assign(pan2, { on: true, sx: m.x, sy: m.y, cx: cam.x, cy: cam.y });
+    ptr.down = false; ptr.ghost = null; ptr.mpa = null; ptr.tap = null; drag.on = false; inspect = null;
+    return;
+  }
   if (e.button !== 0 || !e.isPrimary) return;
   const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.cx = e.clientX; ptr.cy = e.clientY; ptr.down = true; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
   view.setPointerCapture(e.pointerId);
-  drag.sy = e.clientY; drag.cy = cam.y; drag.on = false;
+  drag.sx = e.clientX; drag.sy = e.clientY; drag.cx = cam.x; drag.cy = cam.y; drag.on = false;
   if (tool !== 'watch' && p.y > WH) { // the tools only reach the sunlit water
     ptr.down = false;
     if (!S.flags.deepTools) { S.flags.deepTools = true; log('Your tools only reach the sunlit water. The deep is for watching.'); }
     return;
   }
-  ptr.ghost = null; ptr.mpa = null; ptr.id = e.pointerId;
+  ptr.ghost = null; ptr.mpa = null; ptr.tap = null; ptr.id = e.pointerId; ptr.t0 = performance.now(); ptr.touch = e.pointerType === 'touch'; ptr.stroked = false;
   if (tool === 'watch') {
     // a lost net under the pointer is hauled up on release (unless this turns into a scroll); otherwise pick an animal
     const gn = ghostAt(p.x, p.y, e.pointerType === 'mouse' ? 10 : 26);
@@ -258,7 +276,12 @@ view.addEventListener('pointerdown', e => {
   }
   else if (tool === 'reserve') ptr.mpa = { x0: p.x, x1: p.x };
   else if (tool === 'net' && inMpa(p.x) && !S.flags.mpaNet) { S.flags.mpaNet = true; log('Nothing can be taken inside the protected area.'); }
-  else if (tool === 'trawl') startTrawl(p.y);
+  else if (e.pointerType === 'touch') ptr.tap = p; // touch: a tap acts on release, so the first finger of a two-finger pan does nothing
+  else toolTap(p);
+});
+// the tools that act once, where the player taps
+function toolTap(p) {
+  if (tool === 'trawl') startTrawl(p.y);
   else if (tool === 'invader') {
     if (!releaseInvaders(p.x, p.y)) log('No ship in port yet. The next one is in ' + Math.ceil(RUN.BALLAST_EVERY - (S.t - S.game.ballastAt)) + ' s.');
     else if (mode === 'run') {
@@ -268,26 +291,47 @@ view.addEventListener('pointerdown', e => {
     else log('Something that doesn\'t belong here has been released.', 'warn');
   }
   else if (tool === 'stock') { S.flags.stockPulse = false; const t = +document.getElementById('stockSel').value; spawnMany(t, p.x, p.y, SPECIES[t].stock); }
-});
+}
 view.addEventListener('pointermove', e => {
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pan2.on) {
+    if (touches.size >= 2) { const m = touchMid(); cam.x = cam.tx = clampCamX(pan2.cx - (m.x - pan2.sx) / scale); cam.target = cam.y = clampCam(pan2.cy - (m.y - pan2.sy) / scale); }
+    return;
+  }
   const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.cx = e.clientX; ptr.cy = e.clientY; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
   if (ptr.down && ptr.mpa) ptr.mpa.x1 = p.x;
-  // dragging with Watch scrolls the column (a tap still picks an animal)
-  if (ptr.down && tool === 'watch' && (drag.on || Math.abs(e.clientY - drag.sy) > 8)) {
+  // dragging with Watch moves the view: down the column, and sideways in pan mode (a tap still picks an animal)
+  const moved = panMode ? Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) : Math.abs(e.clientY - drag.sy); // a sideways slip only counts where the view pans
+  if (ptr.down && tool === 'watch' && (drag.on || moved > 8)) {
     drag.on = true; inspect = null;
     cam.target = cam.y = clampCam(drag.cy - (e.clientY - drag.sy) / scale);
+    cam.tx = cam.x = clampCamX(drag.cx - (e.clientX - drag.sx) / scale);
   }
 });
-view.addEventListener('wheel', e => { e.preventDefault(); cam.target = clampCam(cam.target + e.deltaY * (e.deltaMode === 1 ? 40 : 1) / scale); }, { passive: false });
+// the wheel scrolls the column; sideways (a trackpad, or Shift + wheel) it pans in pan mode
+view.addEventListener('wheel', e => {
+  e.preventDefault();
+  const k = e.deltaMode === 1 ? 40 : 1, side = e.shiftKey ? e.deltaY || e.deltaX : e.deltaX;
+  if (panMode && Math.abs(side) > Math.abs(e.shiftKey ? 0 : e.deltaY)) cam.tx = clampCamX(cam.tx + side * k / scale);
+  else cam.target = clampCam(cam.target + e.deltaY * k / scale);
+}, { passive: false });
 view.addEventListener('pointerup', e => {
   if (ptr.down && !drag.on && e.pointerId === ptr.id) { // only the finger that started it ends it
     if (ptr.ghost && S.ghosts.includes(ptr.ghost)) haulGhost(ptr.ghost);
     if (ptr.mpa) placeMpa(ptr.mpa, (e.pointerType === 'mouse' ? 12 : 24) / scale); // slop in screen px
+    if (ptr.tap) toolTap(ptr.tap);
+    // a quick tap with the Net or paint, over before the touch delay let a stroke start (render.js frame): one stroke
+    if (ptr.touch && !ptr.stroked && !paused && ptr.y <= WH) { if (tool === 'net') netAt(ptr.x, ptr.y, 50); else if (tool === 'pollute') dumpAt(ptr.x, ptr.y, 1 / 30); }
   }
-  ptr.ghost = null; ptr.mpa = null;
+  ptr.ghost = null; ptr.mpa = null; ptr.tap = null;
 });
 // pointerup comes first, so these only end the gesture
-for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, () => { ptr.down = false; drag.on = false; ptr.ghost = null; ptr.mpa = null; });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, e => { ptr.down = false; drag.on = false; ptr.ghost = null; ptr.mpa = null; ptr.tap = null; if (ev !== 'lostpointercapture') touches.delete(e.pointerId); });
+// the view stays a pan until every finger is up, so the last one does not start a tool stroke
+for (const ev of ['pointerup', 'pointercancel']) view.addEventListener(ev, () => {
+  if (!touches.size) pan2.on = false;
+  else if (pan2.on && touches.size >= 2) { const m = touchMid(); Object.assign(pan2, { sx: m.x, sy: m.y, cx: cam.x, cy: cam.y }); } // a finger lifted: no jump
+});
 // a click inside the protected area lifts it; a click elsewhere marks the narrowest strip there; a drag marks what it covered
 function placeMpa(m, slop) {
   const click = Math.abs(m.x1 - m.x0) < slop;
@@ -314,8 +358,10 @@ addEventListener('keydown', e => {
   else if (e.key.toLowerCase() === 'e' && !e.repeat) document.getElementById('exclBtn').click(); else if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
   else if (e.key.toLowerCase() === 'h') setHints(!hintsOn);
   else if (e.key.toLowerCase() === 'm' && !e.repeat) setSound(!SOUND.on, true);
+  else if (PAN_KEYS[e.key] && panMode) { e.preventDefault(); cam.tx = clampCamX(cam.tx + PAN_KEYS[e.key] * innerWidth / scale); }
   else if (CAM_KEYS[e.key] !== undefined) { e.preventDefault(); cam.target = clampCam(CAM_KEYS[e.key] === 'top' ? -SKY : CAM_KEYS[e.key] === 'bottom' ? camMax() : cam.target + CAM_KEYS[e.key] * innerHeight / scale); }
 });
+const PAN_KEYS = { ArrowLeft: -0.25, ArrowRight: 0.25 };
 const CAM_KEYS = { ArrowDown: 0.25, ArrowUp: -0.25, PageDown: 0.85, PageUp: -0.85, Home: 'top', End: 'bottom' };
 // the depth button: dive to the deep, or come back up
 const depthBtn = document.getElementById('depthBtn');

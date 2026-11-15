@@ -46,6 +46,8 @@ async function desktop(b) {
   await wait(p, 500);
   check('mode picker is shown', await p.isVisible('#menu'));
   await shot(p, '0-menu');
+  check('desktop: the reef shelf clears the toolbar, the whole width shows', await count(p, () => !panMode && oy + FRAME_Y * scale <= innerHeight - barH + 1),
+    await count(p, () => 'shelf ' + Math.round(oy + FRAME_Y * scale) + ' / bar ' + Math.round(innerHeight - barH)));
 
   // sandbox: the sim runs and every tool does something
   await p.click('[data-mode=sandbox]');
@@ -253,7 +255,9 @@ async function phone(b) {
   check('phone: no sideways scrolling', await count(p, () => document.documentElement.scrollWidth <= innerWidth + 1),
     await count(p, () => document.documentElement.scrollWidth + ' > ' + innerWidth));
   check('phone: depth button shown exactly when the camera can reach the deep', await count(p, () => (camMax() > 300) === !document.getElementById('depthBtn').hidden), await count(p, () => 'camMax ' + Math.round(camMax())));
-  const q = await count(p, () => { const a = S.agents.find(a => !a.dead && a.t !== PLANKTON && a.y > 40); return { x: ox + a.x * scale, y: oy + a.y * scale }; });
+  const q = await count(p, () => { // an animal in view: the phone shows a part of the width (pan mode)
+    const at = a => ({ x: ox + a.x * scale, y: oy + a.y * scale }), a = S.agents.find(a => { const q = at(a); return !a.dead && a.t !== PLANKTON && a.y > 40 && q.x > 30 && q.x < innerWidth - 30 && q.y > topReserve + 60 && q.y < innerHeight - barH - 80; });
+    return at(a); });
   await p.touchscreen.tap(q.x, q.y); await wait(p, 300);
   check('phone: tapping an animal shows its label', await count(p, () => !!inspect));
   // the species panel is a strip of dots and counts; a tap opens it over the water without moving the column
@@ -271,6 +275,38 @@ async function phone(b) {
   await p.tap('#pause'); await p.tap('#moreBtn'); await wait(p, 200);
   check('phone: paused, Resume stays in reach with More folded', await count(p, () => paused && !!document.getElementById('pause').offsetParent));
   await p.tap('#pause'); await wait(p, 100);
+  // the sunlit scene fills the height and the view pans sideways: one finger with Watch, two fingers with any tool
+  check('phone: pan mode, animals drawn at a readable size, the reef shelf clears the toolbar', await count(p, () =>
+    panMode && scale > 0.5 && oy + FRAME_Y * scale <= innerHeight - barH + 1), await count(p, () => 'scale ' + scale.toFixed(3)));
+  const cdp = await p.context().newCDPSession(p);
+  const touch = async (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  const swipe = async (from, to) => { // fingers [[x, y], ...] move together by (dx, dy)
+    await touch('touchStart', from.slice(0, 1)); if (from.length > 1) await touch('touchStart', from);
+    for (let k = 1; k <= 8; k++) await touch('touchMove', from.map(([x, y]) => [x + (to[0] * k) / 8, y + (to[1] * k) / 8]));
+    await touch('touchEnd', []); await wait(p, 100);
+  };
+  await p.evaluate(() => { cam.x = cam.tx = 0; });
+  await swipe([[300, 450]], [-200, 0]);
+  check('phone: a one-finger drag with Watch pans sideways', await count(p, () => cam.x > 150), await count(p, () => 'cam.x ' + Math.round(cam.x)));
+  await p.evaluate(() => { setTool('net'); window.__nets = 0; const n = netAt; window.netAt = (...a) => { __nets++; return n(...a); }; });
+  const x0 = await count(p, () => cam.x);
+  await swipe([[150, 450], [250, 450]], [150, 0]);
+  check('phone: two fingers pan with the Net picked, and net nothing', await p.evaluate(x0 => cam.x < x0 - 100 && __nets === 0, x0), await count(p, () => 'cam.x ' + Math.round(cam.x) + ', nets ' + __nets));
+  await touch('touchStart', [[200, 450]]); await wait(p, 400); await touch('touchMove', [[230, 460]]); await wait(p, 200); await touch('touchEnd', []);
+  check('phone: one finger held with the Net still nets', await count(p, () => __nets > 0), await count(p, () => 'nets ' + __nets));
+  await p.evaluate(() => { setTool('stock'); window.__n0 = S.agents.length; });
+  await p.touchscreen.tap(200, 450); await wait(p, 100);
+  check('phone: a tap with Stock adds animals (on release)', await count(p, () => S.agents.length > __n0));
+  await p.evaluate(() => { setTool('net'); __nets = 0; });
+  await touch('touchStart', [[200, 450]]); await touch('touchEnd', []); await wait(p, 100);
+  check('phone: a quick tap with the Net still nets once', await count(p, () => __nets === 1), await count(p, () => 'nets ' + __nets));
+  // a new game from behind More: the drawer folds, the scale fits the new mode at once, the old log is gone
+  await p.evaluate(() => { setTool('watch'); log('old message'); }); await wait(p, 300);
+  await p.tap('#moreBtn'); await wait(p, 100); await p.tap('#menuBtn'); await wait(p, 200); await p.tap('[data-mode=run]'); await wait(p, 600);
+  check('phone: a new game from behind More folds it and refits at once', await count(p, () =>
+    !document.getElementById('bar').classList.contains('more') && fitKey === 'fit' && oy + FRAME_Y * scale <= innerHeight - barH + 1),
+    await count(p, () => 'shelf ' + Math.round(oy + FRAME_Y * scale) + ' / bar ' + Math.round(innerHeight - barH)));
+  check('phone: a new game starts with a fresh log', await count(p, () => !logEl.textContent.includes('old message') && logShown <= S.events.length));
   await shot(p, '5-phone');
   errorCheck('phone');
   await p.close();

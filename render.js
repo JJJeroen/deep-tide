@@ -3,38 +3,75 @@ const view = document.getElementById('view'), ctx = view.getContext('2d');
 const COL = SPECIES.map(sp => sp.color);
 let scale = 1, ox = 0, oy = 0, tool = 'watch', paused = false, speedMul = 1; // speedMul = simulated seconds per real second
 const ptr = { x: 0, y: 0, down: false, inside: false };
-const drag = { on: false, sy: 0, cy: 0 }; // dragging with the Watch tool scrolls the camera
+const drag = { on: false, sx: 0, sy: 0, cx: 0, cy: 0 }; // dragging with the Watch tool moves the camera
 
 // Camera: the world is a tall column (sky, the sunlit sim, the deep down to the abyssal floor). cam.y is the world y at the
 // top of the view; scrolled to the top, the view is exactly the sunlit scene. oy stays the screen position of world y = 0
 // (the surface) and moves with the camera, so everything that maps screen <-> world keeps working.
-const cam = { y: -SKY, target: -SKY };
+// On a narrow screen (a phone held upright) the whole width would leave the animals a few pixels long, so the sunlit scene
+// fills the height instead and the camera pans sideways: panMode, cam.x is the world x at the left of the view, ox follows it.
+const cam = { x: 0, tx: 0, y: -SKY, target: -SKY };
+let panMode = false;
 // Screen space the panels take: on a portrait phone the column starts below the species panel (as the sea did before),
 // and the camera always scrolls far enough that the abyssal floor clears the toolbar.
 // On a portrait phone the species panel is folded to a strip (index.html); opened, it lies over the water and the
 // column stays where the strip put it.
-let topReserve = 0, barH = 0, stripBottom = 0;
+let topReserve = 0, barH = 0, stripBottom = 0, titleFit = 0, fitKey = '';
 function measureChrome() {
   const bar = document.getElementById('bar'), st = document.getElementById('stats'), db = document.getElementById('depthBtn');
-  const tt = document.getElementById('title'), portrait = innerWidth <= 760 && innerHeight > innerWidth && st && tt;
+  const tt = document.getElementById('title'), hint = document.getElementById('hint'), portrait = innerWidth <= 760 && innerHeight > innerWidth && st && tt;
   barH = bar ? bar.offsetHeight + 12 : 0; // read everything first, then write, so no extra layout is forced
-  const titleR = portrait ? tt.getBoundingClientRect() : null;
+  const titleR = portrait ? tt.getBoundingClientRect() : null, more = innerWidth <= 760 && bar && bar.classList.contains('more'), hintH = hint ? hint.offsetHeight : 0;
   if (portrait && !st.classList.contains('open')) stripBottom = st.getBoundingClientRect().bottom;
-  topReserve = portrait ? Math.round(Math.max(titleR.bottom, stripBottom)) + 6 : 0;
+  // the title panel is measured when the scale is fitted: a warning that grows the run's panel later lies over the sky
+  // instead of pushing the reef under the toolbar
+  const refit = !more && !fitKey;
+  if (portrait && (refit || !titleFit)) titleFit = titleR.bottom;
+  topReserve = portrait ? Math.round(Math.max(titleFit, stripBottom)) + 6 : 0;
   const bottom = (barH + 6) + 'px'; if (db && db.style.bottom !== bottom) db.style.bottom = bottom; // just above the toolbar
   const mw = portrait ? Math.max(150, Math.round(innerWidth - titleR.right - 20)) + 'px' : ''; // clear of the title
   if (st && st.style.maxWidth !== mw) st.style.maxWidth = mw;
+  // The scale is fitted once per window size and per mode (resize, ui.js newGame clear fitKey), to the toolbar as it
+  // stands with More folded and the hint at least two lines tall on a phone (one on a desktop; it changes with the tool;
+  // a new mode starts on Watch): unfolding More, picking a tool or a warning growing the run's panel never zooms the
+  // ocean mid-game (the column only shifts, as it always did).
+  if (refit) { fitKey = 'fit'; fitScale(topReserve, barH + Math.max(0, (innerWidth <= 760 ? 34 : 17) - hintH)); }
+}
+// world y that clears the toolbar with the camera at the top: the reef shelf and a band of rock under it
+const FRAME_Y = 820;
+let fitW0 = 0; // the window width the last fit used
+function fitScale(top, bar) {
+  const fitW = innerWidth / WW, fitAll = Math.max(0.05, (innerHeight - top) / (SKY + WH));
+  const fitH = Math.max(0.05, (innerHeight - top - bar) / (SKY + FRAME_Y)); // the reef shelf clear of the toolbar
+  const was = panMode, mid = was ? cam.x + fitW0 / scale / 2 : 0;
+  // a phone held upright, where the whole width would draw the ocean at well under two thirds of the height's size
+  // (tablets and desktop windows keep the whole width, as the brief has it)
+  panMode = innerWidth <= 760 && fitW < fitH * 0.6;
+  // on a short screen (a phone on its side) clearing the toolbar would shrink everything by a quarter: there it may cover
+  // the seabed, as it always did
+  scale = panMode ? fitH : Math.min(fitW, fitH >= fitAll * 0.85 ? fitH : fitAll);
+  // keep the middle of the view where it was; coming into pan mode, start at the reef on the left
+  if (panMode) cam.x = cam.tx = clampCamX(was ? mid - innerWidth / scale / 2 : 0);
+  fitW0 = innerWidth;
+  // the Watch hint mentions dragging only in pan mode; it changes the toolbar's height, so fit once more
+  if (was !== panMode && typeof setTool === 'function') { setTool(tool); fitKey = ''; }
+  ox = panMode ? -cam.x * scale : (innerWidth - WW * scale) / 2;
+  cam.y = clampCam(cam.y); cam.target = clampCam(cam.target); placeCam();
 }
 const camMax = () => Math.max(-SKY, DEEP_BOTTOM - (innerHeight - barH - 10 - topReserve) / scale);
 const clampCam = y => Math.max(-SKY, Math.min(camMax(), y));
-function placeCam() { oy = topReserve - cam.y * scale; }
+const camMaxX = () => panMode ? Math.max(0, WW - innerWidth / scale) : 0;
+const clampCamX = x => Math.max(0, Math.min(camMaxX(), x));
+function placeCam() { oy = topReserve - cam.y * scale; if (panMode) ox = -cam.x * scale; }
+// stereo position of a world x as the player sees it: left of the view -1, right +1
+const panAt = x => Math.max(-1, Math.min(1, (ox + x * scale) / innerWidth * 2 - 1));
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   view.width = innerWidth * dpr; view.height = innerHeight * dpr;
-  scale = Math.min(innerWidth / WW, innerHeight / (WH + SKY));
-  ox = (innerWidth - WW * scale) / 2;
-  measureChrome();
-  cam.y = clampCam(cam.y); cam.target = clampCam(cam.target); placeCam();
+  // always refits on a new window size, with the More drawer folded (it holds the fit back while open)
+  const bar = document.getElementById('bar'); if (bar) bar.classList.remove('more');
+  const mb = document.getElementById('moreBtn'); if (mb) mb.setAttribute('aria-expanded', 'false');
+  fitKey = ''; measureChrome();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 addEventListener('resize', resize); resize();
@@ -96,21 +133,35 @@ function drawRunoff() {
   }
   paintGrid();
 }
-// over the darkness (a dark patch in dark water would not show): water short of oxygen as a pale, dead haze, labelled
+// Water short of oxygen, over the darkness: stagnant, grey-brown and heavy, with flecks of rot sinking through it, so it
+// reads as dead water by day (darker and duller than the blue around it) and as grey murk at night. Labelled.
+const rotRnd = seeded(73), ROTFLECKS = Array.from({ length: 220 }, () => ({ x: rotRnd() * WW, y: rotRnd() * WH, v: 4 + rotRnd() * 7, ph: rotRnd() * 6.283, w: 1 + rotRnd() * 1.8 })); // own sequence: leaves Math.random to the rest
+let rotLast = 0;
 function drawDeadZone() {
   if (!S.wqOn || S.avgHyp <= 0) return;
   const d = runImg.data, sat = oxySat(), ok = Math.min(OXY.ok, sat);
   let wx = 0, wy = 0, w = 0;
   for (let i = 0; i < S.odef.length; i++) {
     const o = i * 4, ox = sat - S.odef[i], h = Math.max(0, Math.min(1, (ok - ox) / (ok - 0.1))), m = h * h * (3 - 2 * h);
-    d[o] = 150; d[o + 1] = 136; d[o + 2] = 150; d[o + 3] = m * 150;
+    d[o] = 44; d[o + 1] = 41; d[o + 2] = 33; d[o + 3] = m * 205;
     if (ox < OXY.low) { wx += (i % GCOLS + 0.5) * GC; wy += ((i / GCOLS | 0) + 0.5) * GC; w++; }
   }
   paintGrid();
+  // rot sinking through it: pale flecks, only where the water is dead
+  const dt = Math.min(0.1, Math.max(0, S.t - rotLast)); rotLast = S.t;
+  ctx.fillStyle = 'rgb(196,188,166)';
+  for (const f of ROTFLECKS) {
+    f.y += f.v * dt; f.x += Math.sin(S.t * 0.4 + f.ph) * 2 * dt; if (f.y > WH) { f.y = 0; f.x = rotRnd() * WW; }
+    const i = Math.min(GROWS - 1, f.y / GC | 0) * GCOLS + Math.min(GCOLS - 1, Math.max(0, f.x / GC | 0)), a = d[i * 4 + 3] / 205;
+    if (a < 0.15) continue;
+    ctx.globalAlpha = a * 0.55; ctx.fillRect(f.x, f.y, f.w, f.w);
+  }
+  ctx.globalAlpha = 1;
   if (w >= 6) {
     const fs = Math.max(13, 12 / scale);
-    ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(235,225,240,.75)';
-    ctx.fillText('dead zone · no oxygen', wx / w, wy / w); ctx.textAlign = 'left';
+    ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
+    ctx.lineJoin = 'round'; ctx.lineWidth = 3 / scale; ctx.strokeStyle = 'rgba(2,7,13,.7)'; ctx.strokeText('dead zone · no oxygen', wx / w, wy / w);
+    ctx.fillStyle = 'rgba(240,234,226,.95)'; ctx.fillText('dead zone · no oxygen', wx / w, wy / w); ctx.textAlign = 'left';
   }
 }
 function paintGrid() {
@@ -475,13 +526,26 @@ function drawCursor() {
   else if (tool === 'invader' || tool === 'stock') { ctx.strokeStyle = tool === 'invader' ? COL[INVADER] : COL[+document.getElementById('stockSel').value]; ctx.beginPath(); ctx.arc(ptr.x, ptr.y, 14, 0, 6.283); ctx.stroke(); }
 }
 
+// pan mode: where the view is along the world, a thin track at the top of the water that brightens while the view moves
+let panSeenAt = -1e9, panLastX = 0;
+function drawPanTrack(now) {
+  if (!panMode) return;
+  if (Math.abs(cam.x - panLastX) > 0.5) { panSeenAt = now; panLastX = cam.x; }
+  const x0 = 16, w = innerWidth - 32, y = topReserve + 6, k = Math.max(0, Math.min(1, 1 - (now - panSeenAt - 600) / 900));
+  ctx.fillStyle = 'rgba(2,7,13,.35)'; rrect(x0 - 1, y - 1, w + 2, 5, 2.5);
+  ctx.fillStyle = `rgba(234,247,255,${0.45 + 0.45 * k})`; rrect(x0 + cam.x / WW * w, y, innerWidth / scale / WW * w, 3, 1.5);
+}
+function rrect(x, y, w, h, r) { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); ctx.fill(); }
+
 let lastNow = 0, acc = 0;
 function frame(now) {
   const dt = 1 / 30;
   // advance by real elapsed time, not once per screen refresh, so the pace is the same on 60 Hz and 144 Hz displays
   const real = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
   lastNow = now;
-  cam.y += (cam.target - cam.y) * Math.min(1, real * 8); cam.y = clampCam(cam.y); placeCam();
+  const ease = Math.min(1, real * 8);
+  cam.y += (cam.target - cam.y) * ease; cam.y = clampCam(cam.y);
+  cam.x += (cam.tx - cam.x) * ease; cam.x = clampCamX(cam.x); placeCam();
   if (ptr.cx !== undefined) { const p = toWorld({ clientX: ptr.cx, clientY: ptr.cy }); ptr.x = p.x; ptr.y = p.y; } // the world moved under a still pointer
   stepLamp(real);
   if (!paused) {
@@ -490,9 +554,11 @@ function frame(now) {
     let n = 0, stepped = 0;
     while (acc >= dt && n++ < 8) {
       acc -= dt;
-      if (ptr.down && ptr.inside && ptr.y <= WH && !drag.on) {
+      // on touch, nets and paint wait a moment: a second finger may be on its way (a two-finger pan, ui.js)
+      if (ptr.down && ptr.inside && ptr.y <= WH && !drag.on && !(ptr.touch && now - ptr.t0 < 90)) {
         if (tool === 'net') netAt(ptr.x, ptr.y, 50);
         else if (tool === 'pollute') dumpAt(ptr.x, ptr.y, dt);
+        ptr.stroked = true;
       }
       step(dt); stepDeep(dt);
       if (S.game.over) { paused = true; ptr.down = false; showEnd(); break; }
@@ -518,6 +584,7 @@ function frame(now) {
   drawTags(); // after the sky: value tags can reach above the waterline
   drawEdges(); drawRuler(); drawCursor();
   ctx.restore();
+  drawPanTrack(now);
   drawInspect(now);
   updateUI();
   audioTick(now);

@@ -100,8 +100,10 @@ function coralCol(it) {
   c = mixHex(c, '#6d6a4c', d * 0.85);
   c = mixHex(c, '#4c4532', REEF.dull * 0.5);
   c = mixHex(c, '#77736a', Math.min(1, scarAt(it.x) * 1.3) * 0.85); // trawled: broken, grey, under silt
-  c = mixHex(c, '#5b5a4c', hypoAt(it.x) * 0.6); // a dead zone settled on the shelf: the colonies pale and dull
-  c = mixHex(c, '#0b3a50', 0.22); // seen through 50 m of water
+  c = mixHex(c, '#45433a', hypoAt(it.x) * 0.85); // a dead zone settled on the shelf: the colonies go grey and dull
+  c = mixHex(c, '#0b3a50', 0.34); // seen through 50 m of water: the reds and yellows go first
+  c = mixHex(c, '#16301f', MOOD.green * 0.5); // a bloom overhead takes the light: the reef sinks into green gloom
+  c = mixHex(c, '#2a2a22', MOOD.pol * 0.35); // and murky water dims it
   return mixHex(c, '#02070d', MOOD.n * 0.55); // night: the reef goes dark with the water; light on it comes from living things
 }
 // How short of oxygen the water just above the shelf is at x (sim.js S.odef: the dead zone sinks and settles on the reef
@@ -194,7 +196,7 @@ function drawSeabed(t) {
   ctx.stroke();
   // corals: rebuilt only when their health visibly changed
   let scarKey = '', hypKey = ''; for (let c = 0; c < REEF_X / GC; c++) { scarKey += Math.round(S.scar[c] * 8); hypKey += Math.round(hypoAt((c + 0.5) * GC) * 6); }
-  const key = Math.round(S.reef.bleach * 24) + '|' + Math.round(S.reef.dead * 16) + '|' + Math.round(REEF.dull * 10) + '|' + scarKey + '|' + hypKey + '|' + Math.round(MOOD.n * 10);
+  const key = Math.round(S.reef.bleach * 24) + '|' + Math.round(S.reef.dead * 16) + '|' + Math.round(REEF.dull * 10) + '|' + scarKey + '|' + hypKey + '|' + Math.round(MOOD.n * 10) + '|' + Math.round(MOOD.green * 10) + '|' + Math.round(MOOD.pol * 10);
   if (key !== REEF.key) { REEF.key = key; buildReef(); }
   ctx.drawImage(reefCanvas, 0, REEF_Y0, REEF_X, REEF_H);
   drawScars();
@@ -426,13 +428,16 @@ function drawEdges() {
 }
 function drawRuler() {
   const fs = Math.max(11, 9.5 / scale);
+  ctx.save(); if (panMode) ctx.translate(cam.x, 0); // pan mode: the ruler stays at the left of the screen
   ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 3 / scale; ctx.strokeStyle = 'rgba(2,7,13,.55)'; // a dark rim keeps them readable on light water
   const under = y => oy + y * scale > innerHeight - barH; // a label behind the toolbar would peek out beside it
-  const tick = (y, label) => { if (under(y)) return; ctx.fillStyle = 'rgba(214,234,240,.32)'; ctx.fillRect(0, y, 12, 1.5); ctx.fillStyle = 'rgba(214,234,240,.5)'; ctx.fillText(label, 16, y); };
+  const text = (s, x, y, a) => { ctx.strokeText(s, x, y); ctx.fillStyle = `rgba(214,234,240,${a})`; ctx.fillText(s, x, y); };
+  const tick = (y, label) => { if (under(y)) return; ctx.fillStyle = 'rgba(214,234,240,.5)'; ctx.fillRect(0, y, 12, 1.5); text(label, 16, y, 0.85); };
   for (let m = 10; m <= 40; m += 10) tick(m / DEPTH_M * WH, m + ' m'); // 50 m would sit on the reef shelf
   // the deep, on its compressed scale (deep.js depthAt), with the zones named where they begin
   for (const m of [200, 500, 1000, 2000, 3000]) tick(yAtDepth(m), m + ' m');
-  ctx.font = `600 ${fs * 0.85}px ui-sans-serif, system-ui, sans-serif`; ctx.fillStyle = 'rgba(214,234,240,.32)';
-  for (const [m, z] of [[200, 'TWILIGHT ZONE'], [1000, 'MIDNIGHT ZONE'], [3000, 'ABYSS']]) if (!under(yAtDepth(m) + fs * 1.2)) ctx.fillText(z, 16, yAtDepth(m) + fs * 1.2);
-  ctx.textBaseline = 'alphabetic';
+  ctx.font = `600 ${fs * 0.85}px ui-sans-serif, system-ui, sans-serif`;
+  for (const [m, z] of [[200, 'TWILIGHT ZONE'], [1000, 'MIDNIGHT ZONE'], [3000, 'ABYSS']]) if (!under(yAtDepth(m) + fs * 1.2)) text(z, 16, yAtDepth(m) + fs * 1.2, 0.62);
+  ctx.restore(); ctx.textBaseline = 'alphabetic';
 }

@@ -25,6 +25,8 @@ It is for curious players, teens and adults, on a desktop or a phone. The point 
 - The panels sit on top of the ocean: title top left, species panel top right, toolbar at the bottom.
 - The seabed: a reef shelf on the left that falls away into a drop-off on the right. The bare slope is the drop-off, not missing content.
 - Jellyfish glow, by day too, and a jellyfish bloom is allowed to look beautiful.
+- On a phone held upright the sunlit scene fills the height between the panels and the toolbar, and the view shows part of the width at a time: the player drags sideways to look along the ocean (two fingers while a tool is picked). The thin bar at the top of the water shows which part is in view. On a desktop the whole width shows.
+- Messages from the ocean appear as small notices just under the waterline, centred.
 
 ## Shots
 
@@ -41,4 +43,5 @@ It is for curious players, teens and adults, on a desktop or a phone. The point 
 | 07-end-screen-desktop | The end of an Anthropocene run in which the player did nothing |
 | 08-reef-day-phone | Sandbox on a phone (390 x 844), daytime |
 | 09-run-phone | An Anthropocene run on a phone, 2.5 minutes in, at night |
-| 10-dead-zone-on-reef-desktop | Farm runoff 4 minutes later: the dead zone has sunk onto the reef |
+| 10-dead-zone-on-reef-desktop | Farm runoff 4 minutes later: the dead zone fills the lower water and reaches the reef |
+| 11-panned-phone | Sandbox on a phone, the view dragged to the right, over the drop-off |

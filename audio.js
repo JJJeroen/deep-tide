@@ -109,7 +109,7 @@ function gong(t) {
 }
 function soundSplash(x) {
   if (!SOUND.ac || !SOUND.on) return;
-  noiseBurst(SOUND.ac.currentTime, 0.35, 900, 0.18, Math.max(-1, Math.min(1, x / WW * 2 - 1)) * 0.7);
+  noiseBurst(SOUND.ac.currentTime, 0.35, 900, 0.18, panAt(x) * 0.7);
 }
 
 // called every frame; updates the mix about ten times a second
@@ -137,7 +137,7 @@ function audioTick(now) {
   // trawler engine, panned with the nearest boat
   const boats = S.trawlers.concat(SAILING);
   ease(SOUND.eng.gain, boats.length ? 0.22 : 0, 0.5);
-  if (boats.length && SOUND.pan) ease(SOUND.pan.pan, Math.max(-1, Math.min(1, (boats[0].x + 230) / WW * 2 - 1)) * 0.8, 0.2);
+  if (boats.length && SOUND.pan) ease(SOUND.pan.pan, panAt(boats[0].x + 230) * 0.8, 0.2);
   // bells: a living, varied ocean rings more often
   const alive = NATIVE.filter(sp => sp.i !== PLANKTON && S.counts[sp.i] > 0);
   if (!paused && !menuUp && t >= SOUND.nextBell) {
