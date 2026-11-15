@@ -93,7 +93,17 @@ function coralCol(it) {
   c = mixHex(c, '#6d6a4c', d * 0.85);
   c = mixHex(c, '#4c4532', REEF.dull * 0.5);
   c = mixHex(c, '#77736a', Math.min(1, scarAt(it.x) * 1.3) * 0.85); // trawled: broken, grey, under silt
-  return mixHex(c, '#0b3a50', 0.22); // seen through 50 m of water
+  c = mixHex(c, '#5b5a4c', hypoAt(it.x) * 0.6); // a dead zone settled on the shelf: the colonies pale and dull
+  c = mixHex(c, '#0b3a50', 0.22); // seen through 50 m of water
+  return mixHex(c, '#02070d', MOOD.n * 0.55); // night: the reef goes dark with the water; light on it comes from living things
+}
+// How short of oxygen the water just above the shelf is at x (sim.js S.odef: the dead zone sinks and settles on the reef
+// minutes after a bloom). Render only: the reef looks stifled; its health in the sim (S.reef) is heat's alone.
+function hypoAt(x) {
+  const c = Math.max(0, Math.min(GCOLS - 1, Math.floor(x / GC))), r0 = Math.floor(bedY(x) / GC);
+  let v = 0;
+  for (let r = Math.max(0, r0 - 2); r <= Math.min(GROWS - 1, r0); r++) v = Math.max(v, S.odef[r * GCOLS + c]);
+  return smooth(0.12, 0.55, v);
 }
 function branch(g, x, y, a, len, d, r) {
   const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
@@ -176,8 +186,8 @@ function drawSeabed(t) {
   for (let i = 0; i < 60; i++) i ? ctx.lineTo(i * 10, BED[i] + 1) : ctx.moveTo(0, BED[0] + 1);
   ctx.stroke();
   // corals: rebuilt only when their health visibly changed
-  let scarKey = ''; for (let c = 0; c < REEF_X / GC; c++) scarKey += Math.round(S.scar[c] * 8);
-  const key = Math.round(S.reef.bleach * 24) + '|' + Math.round(S.reef.dead * 16) + '|' + Math.round(REEF.dull * 10) + '|' + scarKey;
+  let scarKey = '', hypKey = ''; for (let c = 0; c < REEF_X / GC; c++) { scarKey += Math.round(S.scar[c] * 8); hypKey += Math.round(hypoAt((c + 0.5) * GC) * 6); }
+  const key = Math.round(S.reef.bleach * 24) + '|' + Math.round(S.reef.dead * 16) + '|' + Math.round(REEF.dull * 10) + '|' + scarKey + '|' + hypKey + '|' + Math.round(MOOD.n * 10);
   if (key !== REEF.key) { REEF.key = key; buildReef(); }
   ctx.drawImage(reefCanvas, 0, REEF_Y0, REEF_X, REEF_H);
   drawScars();

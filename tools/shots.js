@@ -75,6 +75,10 @@ const SHOTS = [
     await p.evaluate(() => { __skip(700); if (S.game.over) { paused = true; showEnd(); } __pump(10); });
   }],
   ['08-reef-day-phone', PHONE, async p => { await sandbox(p, true); await p.evaluate(() => { __skip(20); __pump(60); }); }],
+  ['10-dead-zone-on-reef-desktop', DESKTOP, async p => {
+    await sandbox(p);
+    await p.evaluate(() => { for (let x = 0; x <= 1600; x += 40) for (const y of [220, 420]) for (let k = 0; k < 8; k++) addRunoff(x, y, RUNOFF.r, RUNOFF.amt); __skip(240); __pump(60); });
+  }],
   ['09-run-phone', PHONE, async p => { await p.tap('[data-mode=run]'); await p.evaluate(() => { setHints(false); __skip(150); __pump(60); }); }],
 ];
 
