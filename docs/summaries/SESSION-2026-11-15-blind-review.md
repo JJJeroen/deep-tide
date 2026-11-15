@@ -36,3 +36,31 @@ My own findings, written before reading the reviewer's: log (1, 5), phone (2), e
 ## Files Modified
 - tools/shots.js (new): fixed screenshots for the review
 - docs/review-brief.md (new): draft brief
+
+---
+
+## Later the same day: owner decisions, fixes, rounds 2 and 3
+
+**Owner:** the drop-off and the jellyfish glow are intended (now in the brief, which is confirmed); fix the findings.
+
+**Fixed and live** (5d6991f..f1510aa, pushed; sim.js/deep.js untouched, smoke 59/59):
+- Log lines on their own dark backing, warnings semibold; max 4 messages. Round-1 "7 stacked lines" and "calm + bloom" were an artifact of `tools/shots.js` (real `setTimeout` under the virtual clock); the tool now runs timers on the virtual clock.
+- Phone: species panel folds to a two-column legend with names (tap opens the full panel over the water); ocean starts ~103 px down instead of ~209; Hints/Sound/Pause/Reset/Menu behind More; locked controls hidden; depth button only when the camera can reach the deep.
+- Reef darkens at night and dulls under a settled dead zone (render only; measured headless: deficit at the reef 0.23 at 90 s, ~0.5 at 3-5 min).
+- Lanternfish photophores draw a fish; in the deep the panel leads with the deep species.
+- Soft light shafts, faded ocean ends, Excluder as a checkbox switch, end-card labels on one line, Pollute/Stock joined with their dropdowns, sparkline track.
+- Shots 09 (run, phone) and 10 (dead zone on reef) added.
+
+**Round 3 (last allowed) still has two P1s; both are owner decisions:**
+1. Phone portrait: the whole 3000 m column fits the width, so animals are 3-5 px. Real fix = sunlit column at a readable scale with sideways pan (a camera/input change), or ask players to rotate.
+2. The dead zone does not read as harm on the reef: the haze is lighter than the water (reads as mist) and floats at 25-45 m; the reef's dulling is too subtle. Note: my brief line "has sunk onto the reef" overstates it (deficit at the reef ~0.5, the visible core is mid-water).
+
+**Open P2/P3 for the owner** (rounds 2+3, my lean in brackets):
+- Framing: the reef and the deep floor sit under the toolbar; reserve toolbar space in the scale (lean fix).
+- Reef keeps full colour at depth and in murk by day (lean fix, render only).
+- Light shafts still read as bars after softening (lean one more try: angle, taper, vary).
+- Secondary text: panel/hint text (#7fa6b5 on the panel) computes to ~6.5:1 and passes; depth labels (~3:1) and the dead-zone caption are low (lean fix).
+- Notices now cover the surface boats (side effect of the opaque log backing; lean move them just below the waterline).
+- Taste: jellyfish size/dominance by day, night animals still lit (moonlight is in the code on purpose), species accents too small to see, end screen as a ledger (fold details), net looks technical, plankton at night like stars, mantas at night like litter, toolbar bright behind the menu.
+
+**Next:** owner picks from the lists above; new review rounds start again at 1 for a new piece of work.
