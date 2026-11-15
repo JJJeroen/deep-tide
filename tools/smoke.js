@@ -252,7 +252,7 @@ async function phone(b) {
   await p.tap('[data-mode=sandbox]'); await wait(p, 1200);
   check('phone: no sideways scrolling', await count(p, () => document.documentElement.scrollWidth <= innerWidth + 1),
     await count(p, () => document.documentElement.scrollWidth + ' > ' + innerWidth));
-  check('phone: depth button is reachable', await p.isVisible('#depthBtn'));
+  check('phone: depth button shown exactly when the camera can reach the deep', await count(p, () => (camMax() > 300) === !document.getElementById('depthBtn').hidden), await count(p, () => 'camMax ' + Math.round(camMax())));
   const q = await count(p, () => { const a = S.agents.find(a => !a.dead && a.t !== PLANKTON && a.y > 40); return { x: ox + a.x * scale, y: oy + a.y * scale }; });
   await p.touchscreen.tap(q.x, q.y); await wait(p, 300);
   check('phone: tapping an animal shows its label', await count(p, () => !!inspect));

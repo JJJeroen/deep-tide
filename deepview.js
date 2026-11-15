@@ -56,6 +56,10 @@ function drawDeepSnow(t) {
 
 // ---- the animals
 function faceOf(a) { if (a.face === undefined) a.face = a.vx < 0 ? -1 : 1; if (a.vx * a.face < -3) a.face = -a.face; return a.face; }
+// lanternfish photophores, in body space (nose at +x): the belly curve from gill to tail, then the tail gland
+const LANTERN_DOTS = [];
+for (let k = 0; k < 7; k++) { const x = 5 - k * 2.1; LANTERN_DOTS.push([x, 0.6 + 2.6 * Math.sqrt(Math.max(0, 1 - (x / 8.6) ** 2))]); }
+LANTERN_DOTS.push([-7.5, -1.2], [-4.5, -1.9], [-10.6, 0]); // two along the flank, one at the root of the tail
 function drawLantern(a) {
   const f = faceOf(a);
   ctx.save(); ctx.translate(a.x, a.y); ctx.scale(f, 1);
@@ -201,11 +205,14 @@ function drawDeepGlows(t) {
   ctx.save(); ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = 0.6; ctx.drawImage(glow('#ff8a4c'), VENT.x - 70, floorY(VENT.x) - 110, 140, 140); // the vent's heat
   for (const a of D.agents) {
-    if (a.k === 'lantern') { // rows of photophores along the belly, blinking now and then
+    if (a.k === 'lantern') { // photophores that draw the fish: a row along the curve of the belly, a bright one at the eye,
+      // a small one at the tail; blinking now and then. A straight row of dots read as a dash, not an animal.
       const f = a.face || 1, on = Math.sin(t * 0.7 + a.ph * 5) > -0.85 ? 1 : 0.2;
-      ctx.globalAlpha = 0.9 * on; ctx.fillStyle = '#8fe8ff';
-      for (let k = -2; k <= 2; k++) ctx.fillRect(a.x + k * 2.6 * f - 0.6, a.y + 1.6, 1.3, 1.3);
-      ctx.globalAlpha = 0.35 * on; ctx.drawImage(glow('#5fd0ff'), a.x - 8, a.y - 6, 16, 14);
+      ctx.globalAlpha = 0.35 * on; ctx.drawImage(glow('#5fd0ff'), a.x - 11, a.y - 7, 22, 15);
+      ctx.globalAlpha = 0.9 * on; ctx.fillStyle = '#8fe8ff'; ctx.beginPath();
+      for (const [px, py] of LANTERN_DOTS) { const x = a.x + px * f, y = a.y + py; ctx.moveTo(x + 0.85, y); ctx.arc(x, y, 0.85, 0, 6.283); }
+      ctx.fill();
+      ctx.fillStyle = '#d4f8ff'; ctx.beginPath(); ctx.arc(a.x + 6.4 * f, a.y - 0.8, 1.2, 0, 6.283); ctx.fill(); // by the eye
     } else if (a.k === 'angler') {
       const p = lurePos(a, t), pulse = 0.75 + 0.25 * Math.sin(t * 2.2 + a.ph);
       ctx.globalAlpha = pulse; ctx.drawImage(glow('#9fffe0'), p.x - 22, p.y - 22, 44, 44);

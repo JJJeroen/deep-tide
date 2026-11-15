@@ -146,8 +146,15 @@ function updateUI() {
     }
     document.getElementById('bioN').textContent = Math.round(biodiversity() * 100) + '%';
     document.getElementById('waterN').textContent = Math.round(waterQuality() * 100) + '%';
-    const dc = D.counts; // the deep, in one line
-    document.getElementById('deepN').innerHTML = `${dc.lantern} lanternfish · ${dc.angler} anglerfish · ${dc.squid} giant squid · ${dc.hagfish + dc.crab} scavengers` + (D.whale ? ' · <b>a sperm whale</b>' : '') + (D.falls.length ? ' · <b>a whale fall</b>' : '');
+    // the deep: one line under the sunlit species; while the camera is down there (as the depth button counts it), rows at
+    // the top of the panel, coloured like each animal's light, and the sunlit rows step back (index.html #stats.deepview)
+    const dc = D.counts, inDeep = cam.y > 300, extra = (D.whale ? ' · <b>a sperm whale</b>' : '') + (D.falls.length ? ' · <b>a whale fall</b>' : '');
+    document.getElementById('stats').classList.toggle('deepview', inDeep);
+    document.getElementById('deepN').innerHTML = inDeep
+      ? [['#8fe8ff', 'Lanternfish', dc.lantern], ['#9fffe0', 'Anglerfish', dc.angler], ['#c4303a', 'Giant squid', dc.squid], ['#b59a7a', 'Scavengers', dc.hagfish + dc.crab]]
+        .map(([c, nm, n]) => `<div class="row"><span class="dot" style="background:${c}"></span><span class="nm">${nm}</span><span class="n">${n}</span></div>`).join('')
+        + (extra ? `<div class="also">${extra.slice(3)}</div>` : '')
+      : `${dc.lantern} lanternfish · ${dc.angler} anglerfish · ${dc.squid} giant squid · ${dc.hagfish + dc.crab} scavengers` + extra;
     measureChrome(); updateDepthBtn();
     drawSparks();
     coachTick();
@@ -312,7 +319,8 @@ const CAM_KEYS = { ArrowDown: 0.25, ArrowUp: -0.25, PageDown: 0.85, PageUp: -0.8
 const depthBtn = document.getElementById('depthBtn');
 depthBtn.addEventListener('click', () => { cam.target = cam.y > 300 ? -SKY : clampCam(yAtDepth(1000) - innerHeight / scale * 0.4); });
 function updateDepthBtn() {
-  const fits = camMax() <= -SKY + 1; depthBtn.hidden = fits || !menuEl.hidden;
+  // no button when the camera cannot get down far enough to count as in the deep (cam.y > 300): the deep is in view already
+  const fits = camMax() <= 300; depthBtn.hidden = fits || !menuEl.hidden;
   const deep = cam.y > 300; depthBtn.textContent = deep ? 'Surface ↑' : 'The deep ↓'; depthBtn.classList.toggle('pulse', !deep && !!D.whale && D.whale.phase !== 'surface' && D.whale.phase !== 'leave');
 }
 
