@@ -38,19 +38,26 @@ function drawWater() {
 }
 
 // ---- light from above: slow shafts, and caustics dancing just under the surface. Night and fouled water swallow both.
+// The shafts are drawn on a small canvas and scaled up with smoothing, so their edges blur over ~13 px like light in water
+// (crisp wedges read as flat vector art); the caustics stay sharp.
+const SHW = 120, SHH = 54, shaftCanvas = document.createElement('canvas'); shaftCanvas.width = SHW; shaftCanvas.height = SHH;
+const shg = shaftCanvas.getContext('2d');
 function drawSunlight(t) {
   const k = (1 - MOOD.n) * (1 - 0.85 * MOOD.pol);
   if (k < 0.02) return;
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
   // the shafts share one vertical gradient and go out as a single fill; the caustics as a single stroke
-  const lg = ctx.createLinearGradient(0, 0, 0, WH * 0.72);
+  shg.setTransform(1, 0, 0, 1, 0, 0); shg.clearRect(0, 0, SHW, SHH);
+  shg.setTransform(SHW / WW, 0, 0, SHH / (WH * 0.72), 0, 0);
+  const lg = shg.createLinearGradient(0, 0, 0, WH * 0.72);
   lg.addColorStop(0, `rgba(160,225,255,${0.11 * k})`); lg.addColorStop(1, 'rgba(160,225,255,0)');
-  ctx.fillStyle = lg; ctx.beginPath();
+  shg.fillStyle = lg; shg.beginPath();
   for (let i = 0; i < 6; i++) {
     const x = ((i * 290 + t * 6 * (1 + i % 3 * 0.3)) % (WW + 400)) - 200, w = 90 + i * 22;
-    ctx.moveTo(x, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x + w * 2.2 - 180, WH * 0.72); ctx.lineTo(x - 140, WH * 0.72); ctx.closePath();
+    shg.moveTo(x, 0); shg.lineTo(x + w, 0); shg.lineTo(x + w * 2.2 - 180, WH * 0.72); shg.lineTo(x - 140, WH * 0.72); shg.closePath();
   }
-  ctx.fill();
+  shg.fill();
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(shaftCanvas, 0, 0, WW, WH * 0.72);
   // caustics: two crossing sets of wavy lines that fade out with depth
   const cg = ctx.createLinearGradient(0, 0, 0, 150);
   cg.addColorStop(0, `rgba(210,248,255,${0.075 * k})`); cg.addColorStop(1, 'rgba(210,248,255,0)');
@@ -407,6 +414,16 @@ function drawTrawlerDecks(t) {
 }
 
 // ---- depth ruler down the left edge
+// Where the window is wider than the world, the ocean's left and right ends fade into the page, so the side bands read as
+// a dark surround rather than a hard cut. (Running every layer out to the window edge would touch most draw functions.)
+const EDGE = 40;
+function drawEdges() {
+  if (ox < 4) return;
+  for (const [x0, x1] of [[0, EDGE], [WW, WW - EDGE]]) {
+    const g = ctx.createLinearGradient(x0, 0, x1, 0); g.addColorStop(0, 'rgba(2,7,13,1)'); g.addColorStop(1, 'rgba(2,7,13,0)');
+    ctx.fillStyle = g; ctx.fillRect(Math.min(x0, x1), -SKY, EDGE, SKY + DEEP_BOTTOM + 600);
+  }
+}
 function drawRuler() {
   const fs = Math.max(11, 9.5 / scale);
   ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';

@@ -61,9 +61,10 @@
   button.pulse { animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(95,212,208,.35); border-color: var(--accent); } }
   button.harm.on { border-color: var(--danger); background: rgba(255,107,138,.18); }
-  button.toggle { padding: 7px 9px; font-size: 12px; color: var(--dim); }
-  button.toggle.on { color: var(--text); border-color: #e0c45c; background: rgba(224,196,92,.16); }
-  button.toggle.on::before { content: "✓ "; }
+  /* an on/off switch: a normal button with a box that fills when it is on (dim and small, "off" read as disabled) */
+  button.toggle::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid var(--dim); border-radius: 2px; }
+  button.toggle.on { border-color: #e0c45c; background: rgba(224,196,92,.16); }
+  button.toggle.on::before { background: #e0c45c; border-color: #e0c45c; }
   .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
   label.s { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; }
   input[type=range] { width: 90px; accent-color: var(--accent); }
@@ -122,6 +123,7 @@
   .card table { width: 100%; border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
   .card td { padding: 3px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
   .card td:last-child { text-align: right; padding-left: 10px; }
+  .card td:first-child:not(:last-child) { white-space: nowrap; padding-right: 6px; } /* labels on one line; the values wrap */
   .card td.neg { color: var(--danger); }
   .card h3 { margin: 12px 0 2px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
   .card .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }

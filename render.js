@@ -516,7 +516,7 @@ function frame(now) {
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t); drawMpaBuoys(S.t);
   drawTags(); // after the sky: value tags can reach above the waterline
-  drawRuler(); drawCursor();
+  drawEdges(); drawRuler(); drawCursor();
   ctx.restore();
   drawInspect(now);
   updateUI();
