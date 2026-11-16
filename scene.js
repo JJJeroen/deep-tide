@@ -286,7 +286,7 @@ function sceneLights() {
     if (a.dead) continue;
     if (a.t === IDX.jelly) L.push({ x: a.x, y: a.y, r: 46, s: 0.45 });
   }
-  if (n > 0.1) for (const tr of S.trawlers.concat(SAILING)) L.push({ x: tr.x + 230, y: 24, r: 150, s: 0.6 * n });
+  if (n > 0.1) for (const tr of S.trawlers.concat(SAILING)) { L.push({ x: tr.x + 200, y: 30, r: 170, s: 0.85 * n }); L.push({ x: tr.x + 190, y: 170, r: 190, s: 0.45 * n }); }
   return L;
 }
 function drawGlows(t) {
@@ -297,6 +297,13 @@ function drawGlows(t) {
     const dep = clamp01((a.y - 200) / 600);
     ctx.globalAlpha = 0.3 + 0.45 * Math.max(dep, n);
     ctx.drawImage(glow(SPECIES[a.t].color), a.x - 30 * RS, a.y - 30 * RS, 60 * RS, 60 * RS);
+  }
+  // a trawler's deck floods at night: a soft, warm cone down into the water under its working deck, wavering with the swell
+  if (n > 0.15) for (const tr of S.trawlers.concat(SAILING)) {
+    const x = tr.x + 195, sway = Math.sin(t * 0.9 + tr.y) * 14;
+    ctx.globalAlpha = 0.4 * n * (0.92 + 0.08 * Math.sin(t * 2.7));
+    ctx.drawImage(glow('#ffd896'), x - 150 + sway * 0.3, -230, 300, 560);
+    ctx.globalAlpha = 0.24 * n; ctx.drawImage(glow('#fff0d0'), x - 70 + sway, -60, 140, 200);
   }
   // dinoflagellates: at night some of the plankton sparkles, brighter where it is stirred up by animals swimming
   if (n > 0.15) {
@@ -384,6 +391,7 @@ function drawHorizon(t, haze) {
     ctx.translate(x, surfY(x, t) + 0.5); ctx.scale(0.85, 0.85);
     drawContainerShip(ctx, t, n, haze, SHIP.leaving);
     ctx.restore();
+    ctx.save(); ctx.globalAlpha = SHIP.leaving ? 1 : SHIP.a; waterLight(ctx, t, x, 110, n, 0.7); ctx.restore();
   }
 }
 // ballast water: a murky stream that pours down from the surface where the ship flushed its tanks
@@ -409,6 +417,7 @@ function drawTrawlerDecks(t) {
     const ns = netShape(tr); // render.js: the net lifts over a protected area
     for (const y of [ns.cy - ns.band, ns.cy + ns.band]) { ctx.beginPath(); ctx.moveTo(bx + WARP_FROM.x, WARP_FROM.y); ctx.quadraticCurveTo(bx + WARP_FROM.x, y * 0.55, tr.x + 5, y); ctx.stroke(); }
     ctx.restore();
+    waterLight(ctx, t, bx - 30, 190, n);
     ctx.save(); ctx.translate(bx, by); ctx.rotate(Math.sin(t * 0.9 + tr.y) * 0.02);
     drawTrawlerTop(ctx, t, n, tr.speed > 0);
     ctx.restore();

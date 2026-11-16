@@ -42,7 +42,7 @@ const LEARN = [
     after: L => (L.qHaul >= 6 ? 'Quota met. ' : 'Short by ' + Math.ceil(6 - L.qHaul) + '. ') + 'In the run, each short minute costs points and sends head office\'s own trawler, which fishes without care; three in a row bankrupt the fleet (−10, once). A species gone at the end costs 10 too, every one of them.' },
   { title: 'The ballast ship', tool: 'invader',
     text: 'Now and then a ship offers money if you let it skip treating its ballast water. In the scored run that is the Skip ballast button: +' + RUN.BALLAST_PAY + ' toward the quota.',
-    task: 'Pick "Release invader" and click anywhere in the water.',
+    task: 'Pick the invader tool (pulsing below) and click anywhere in the water.',
     prog: () => '', done: () => S.counts[INVADER] > 0,
     after: () => 'Those are lionfish. They hunt grazers and jellyfish, and nothing here eats them. Lost species also take much longer to return while they are around. Point at one to see it.' },
 ];

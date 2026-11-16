@@ -54,6 +54,9 @@ async function desktop(b) {
   await p.evaluate(() => setHints(false));
   const t0 = await count(p, () => S.t); await wait(p, 1000);
   check('sandbox: the simulation advances', (await count(p, () => S.t)) > t0 + 0.5);
+  check('desktop: tools keep their full names, the hint shows in full, Warmth stays in the bar', await count(p, () =>
+    document.querySelector('[data-tool=invader]').innerText === 'Release invader' && document.querySelector('[data-tool=reserve]').innerText === 'Protected area'
+    && getComputedStyle(hintEl).whiteSpace !== 'nowrap' && !!document.getElementById('temp').offsetParent && !!pollSel.offsetParent && !!document.getElementById('exclBtn').offsetParent));
   check('sandbox: native species are present', await count(p, () => NATIVE.every(sp => S.counts[sp.i] > 0)), await count(p, () => NATIVE.map(sp => sp.id + ' ' + S.counts[sp.i]).join(', ')));
 
   await p.keyboard.press('t'); const tr = await toPage(p, 800, 400); await p.mouse.click(tr.x, tr.y); await wait(p, 300);
@@ -87,6 +90,8 @@ async function desktop(b) {
     let bloom = 0; for (let i = 0; i < 30 * 150; i++) { step(1 / 30); bloom = Math.max(bloom, S.bloomN); }
     return bloom > 100 && S.hypFrac > 0.01 && waterQuality() < 0.9;
   }), await count(p, () => 'dead zone ' + (S.hypFrac * 100).toFixed(1) + '%, water ' + Math.round(waterQuality() * 100) + '%'));
+  await wait(p, 300); // drawn for a few frames: drained to grey, with its top edge (page errors are counted below)
+  check('runoff: the dead zone is drawn with a top edge', await count(p, () => DZ.some(v => v >= 0.5) && drawDeadTop() > 0));
   check('runoff: a grazer in the dead zone gasps, a jelly does not', await count(p, () => {
     let i = 0; for (let k = 1; k < S.odef.length; k++) if (S.odef[k] > S.odef[i]) i = k;
     const x = (i % GCOLS + 0.5) * GC, y = ((i / GCOLS | 0) + 0.5) * GC;
@@ -162,17 +167,25 @@ async function desktop(b) {
   check('sound: M toggles it', (await count(p, () => SOUND.on)) === !on);
   await p.keyboard.press('m');
 
-  // learn mode: the coach appears on step 1
+  // learn mode: the coach appears on step 1 (entered with Pollute picked: a new game must reset the whole toolbar)
+  await p.keyboard.press('p'); await wait(p, 100);
   await p.click('#menuBtn'); await p.click('[data-mode=learn]'); await wait(p, 600);
+  check('a new game with Pollute picked resets the toolbar whole', await count(p, () =>
+    document.querySelectorAll('#bar button[data-tool]').length === 7 && document.querySelector('[data-tool=pollute]').textContent === 'Pollute' && tool === 'watch'));
   check('learn mode: the coach shows step 1', await count(p, () => !document.getElementById('coach').hidden && C.L.step === 0), await count(p, () => 'step ' + C.L.step));
   await shot(p, '3-learn');
   errorCheck('learn');
 
-  // scored run: HUD up, ballast ship, then fast-forward to the end screen
+  // scored run: HUD up, ballast ship, then fast-forward to the end screen (entered with Stock picked)
+  await p.keyboard.press('s'); await wait(p, 100);
   await p.click('#menuBtn'); await p.click('[data-mode=run]'); await wait(p, 500);
   check('run: HUD shows', await p.isVisible('#hud'));
   check('run: stock tool is locked', await p.isDisabled('[data-tool=stock]'));
   check('run: pollute reads Dump, with waste and farm runoff', await count(p, () => document.querySelector('[data-tool=pollute]').textContent === 'Dump' && pollSel.options[1].textContent === 'farm runoff'));
+  await p.keyboard.press('i'); await wait(p, 400); // the HUD relabels Skip ballast with its countdown
+  check('run: picking Skip ballast leaves the toolbar whole', await count(p, () =>
+    document.querySelectorAll('#bar button[data-tool]').length === 7 && /^Skip ballast/.test(document.querySelector('[data-tool=invader]').textContent)));
+  await p.keyboard.press('w');
   check('run: a new game starts with clean, fully oxygenated water', await count(p, () => !S.wqOn && S.avgHyp === 0 && waterQuality() === 1));
   await p.evaluate(() => { setHints(true); for (let i = 0; i < 30 * 61; i++) step(1 / 30); }); // a first minute with no catch
   check('run: a short minute sends head office\'s trawler', await count(p, () => S.trawlers.some(t => t.company) && S.game.companyTrips === 1));
@@ -262,22 +275,41 @@ async function phone(b) {
   check('phone: tapping an animal shows its label', await count(p, () => !!inspect));
   // the species panel is a strip of dots and counts; a tap opens it over the water without moving the column
   check('phone: species panel starts folded (names, no sparklines), the column starts under it', await count(p, () =>
-    !document.getElementById('stats').classList.contains('open') && topReserve < 120 && !document.querySelector('#row0 .spark').offsetParent && !!document.querySelector('#row0 .nm').offsetParent), 'top ' + await count(p, () => topReserve));
+    !document.getElementById('stats').classList.contains('open') && topReserve < 140 && !document.querySelector('#row0 .spark').offsetParent && !!document.querySelector('#row0 .nm').offsetParent), 'top ' + await count(p, () => topReserve));
+  check('phone: Biodiversity and Water show under the species strip', await count(p, () => !!document.getElementById('bio').offsetParent && /\d+%/.test(document.getElementById('bioN').textContent) && /\d+%/.test(document.getElementById('waterN').textContent)));
   const top0 = await count(p, () => topReserve);
   await p.tap('#stats'); await wait(p, 300);
   check('phone: a tap opens the species panel over the water', await count(p, () =>
     document.getElementById('stats').classList.contains('open') && !!document.querySelector('#row0 .spark').offsetParent) && (await count(p, () => topReserve)) === top0);
   await p.tap('#stats'); await wait(p, 200);
   // settings fold behind More; locked controls are hidden, not greyed out
-  check('phone: Hints, Sound, Pause, Reset, Menu fold behind More', await count(p, () => ['hintsBtn', 'soundBtn', 'pause', 'reset', 'menuBtn'].every(id => !document.getElementById(id).offsetParent)));
+  check('phone: Warmth, Hints, Sound, Pause, Reset, Menu fold behind More', await count(p, () => ['temp', 'hintsBtn', 'soundBtn', 'pause', 'reset', 'menuBtn'].every(id => !document.getElementById(id).offsetParent)));
   await p.tap('#moreBtn'); await wait(p, 200);
-  check('phone: More shows them', await count(p, () => ['hintsBtn', 'soundBtn', 'pause', 'reset', 'menuBtn'].every(id => !!document.getElementById(id).offsetParent)));
+  check('phone: More shows them', await count(p, () => ['temp', 'hintsBtn', 'soundBtn', 'pause', 'reset', 'menuBtn'].every(id => !!document.getElementById(id).offsetParent)));
   await p.tap('#pause'); await p.tap('#moreBtn'); await wait(p, 200);
   check('phone: paused, Resume stays in reach with More folded', await count(p, () => paused && !!document.getElementById('pause').offsetParent));
   await p.tap('#pause'); await wait(p, 100);
+  // the toolbar: a line for the picked tool (its setting and its hint, one line), then two rows of tools with short names
+  check('phone: the toolbar is one line and two rows of tools, with short names', await count(p, () => {
+    showHint(false);
+    const tops = new Set([...document.querySelectorAll('#bar [data-tool], #speed, #moreBtn')].filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().top)));
+    return tops.size === 2 && document.getElementById('bar').offsetHeight < 140
+      && document.querySelector('[data-tool=invader]').innerText === 'Invader' && document.querySelector('[data-tool=reserve]').innerText === 'Protect';
+  }), await count(p, () => 'bar ' + document.getElementById('bar').offsetHeight + ' px'));
+  await p.tap('[data-tool=pollute]'); await wait(p, 100);
+  check('phone: a tool picked the first time shows its hint in full, its setting beside it', await count(p, () =>
+    hintEl.classList.contains('full') && !!pollSel.offsetParent && !document.getElementById('exclBtn').offsetParent && !stockSel.offsetParent));
+  await p.touchscreen.tap(200, 450); await wait(p, 100);
+  check('phone: the hint folds to one line at the first touch on the water', await count(p, () => !hintEl.classList.contains('full') && hintEl.offsetHeight <= 34));
+  await p.tap('[data-tool=trawl]'); await wait(p, 100); await p.tap('#hint'); await wait(p, 100);
+  const folded = await count(p, () => !hintEl.classList.contains('full'));
+  await p.tap('#hint'); await wait(p, 100);
+  check('phone: Trawler shows the Excluder; a tap on the hint folds and opens it', folded && await count(p, () =>
+    hintEl.classList.contains('full') && !!document.getElementById('exclBtn').offsetParent && !pollSel.offsetParent));
+  await p.tap('[data-tool=watch]'); await wait(p, 100);
   // the sunlit scene fills the height and the view pans sideways: one finger with Watch, two fingers with any tool
-  check('phone: pan mode, animals drawn at a readable size, the reef shelf clears the toolbar', await count(p, () =>
-    panMode && scale > 0.5 && oy + FRAME_Y * scale <= innerHeight - barH + 1), await count(p, () => 'scale ' + scale.toFixed(3)));
+  check('phone: pan mode, animals drawn at a readable size, the reef shelf clears the toolbar (hint folded)', await count(p, () =>
+    (showHint(false), measureChrome(), panMode) && scale > 0.5 && oy + FRAME_Y * scale <= innerHeight - barH + 1), await count(p, () => 'scale ' + scale.toFixed(3)));
   const cdp = await p.context().newCDPSession(p);
   const touch = async (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
   const swipe = async (from, to) => { // fingers [[x, y], ...] move together by (dx, dy)
@@ -294,18 +326,33 @@ async function phone(b) {
   check('phone: two fingers pan with the Net picked, and net nothing', await p.evaluate(x0 => cam.x < x0 - 100 && __nets === 0, x0), await count(p, () => 'cam.x ' + Math.round(cam.x) + ', nets ' + __nets));
   await touch('touchStart', [[200, 450]]); await wait(p, 400); await touch('touchMove', [[230, 460]]); await wait(p, 200); await touch('touchEnd', []);
   check('phone: one finger held with the Net still nets', await count(p, () => __nets > 0), await count(p, () => 'nets ' + __nets));
-  await p.evaluate(() => { setTool('stock'); window.__n0 = S.agents.length; });
+  // (counts the stocking itself: the total can fall in the same moment as animals die)
+  await p.evaluate(() => { setTool('stock'); window.__stocked = 0; const sm = spawnMany; window.spawnMany = (...a) => { __stocked++; return sm(...a); }; });
   await p.touchscreen.tap(200, 450); await wait(p, 100);
-  check('phone: a tap with Stock adds animals (on release)', await count(p, () => S.agents.length > __n0));
+  check('phone: a tap with Stock adds animals (on release)', await count(p, () => __stocked === 1), await count(p, () => 'stocked ' + __stocked));
   await p.evaluate(() => { setTool('net'); __nets = 0; });
   await touch('touchStart', [[200, 450]]); await touch('touchEnd', []); await wait(p, 100);
   check('phone: a quick tap with the Net still nets once', await count(p, () => __nets === 1), await count(p, () => 'nets ' + __nets));
+  // the strip is measured folded and at the surface, whenever the fit happens (hints off: the deep's tip card would cover
+  // the strip on a phone)
+  await p.evaluate(() => { setHints(false); cam.y = cam.target = clampCam(1400); }); await wait(p, 400);
+  await p.evaluate(() => { fitKey = ''; }); await wait(p, 300);
+  const deepTop = await count(p, () => document.getElementById('stats').classList.contains('deepview') ? topReserve : -1);
+  await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 300); await p.tap('#stats'); await wait(p, 300);
+  await p.evaluate(() => { fitKey = ''; }); await wait(p, 300);
+  const openTop = await count(p, () => document.getElementById('stats').classList.contains('open') ? topReserve : -1);
+  await p.tap('#stats'); await wait(p, 200);
+  check('phone: a fit in the deep or with the species panel open measures the strip at the surface, folded', deepTop === top0 && openTop === top0, `deep ${deepTop}, open ${openTop}, surface ${top0}`);
   // a new game from behind More: the drawer folds, the scale fits the new mode at once, the old log is gone
   await p.evaluate(() => { setTool('watch'); log('old message'); }); await wait(p, 300);
   await p.tap('#moreBtn'); await wait(p, 100); await p.tap('#menuBtn'); await wait(p, 200); await p.tap('[data-mode=run]'); await wait(p, 600);
   check('phone: a new game from behind More folds it and refits at once', await count(p, () =>
-    !document.getElementById('bar').classList.contains('more') && fitKey === 'fit' && oy + FRAME_Y * scale <= innerHeight - barH + 1),
+    !document.getElementById('bar').classList.contains('more') && fitKey === 'fit' && (showHint(false), measureChrome(), oy + FRAME_Y * scale <= innerHeight - barH + 1)),
     await count(p, () => 'shelf ' + Math.round(oy + FRAME_Y * scale) + ' / bar ' + Math.round(innerHeight - barH)));
+  await p.evaluate(() => { S.game.streak = 2; }); await wait(p, 400); // a warning grows the run's panel over the sky
+  check('phone: the pan track stays below the grown run panel', await count(p, () =>
+    Math.max(topReserve, panelsNow) >= Math.round(titleEl.getBoundingClientRect().bottom) && titleEl.getBoundingClientRect().bottom > topReserve - 6),
+    await count(p, () => 'track ' + (Math.max(topReserve, panelsNow) + 6) + ', panel ' + Math.round(titleEl.getBoundingClientRect().bottom) + ', reserve ' + topReserve));
   check('phone: a new game starts with a fresh log', await count(p, () => !logEl.textContent.includes('old message') && logShown <= S.events.length));
   await shot(p, '5-phone');
   errorCheck('phone');

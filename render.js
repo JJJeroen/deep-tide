@@ -16,26 +16,40 @@ let panMode = false;
 // and the camera always scrolls far enough that the abyssal floor clears the toolbar.
 // On a portrait phone the species panel is folded to a strip (index.html); opened, it lies over the water and the
 // column stays where the strip put it.
-let topReserve = 0, barH = 0, stripBottom = 0, titleFit = 0, fitKey = '';
+let topReserve = 0, barH = 0, stripBottom = 0, titleFit = 0, fitKey = '', panelsNow = 0;
 function measureChrome() {
   const bar = document.getElementById('bar'), st = document.getElementById('stats'), db = document.getElementById('depthBtn');
   const tt = document.getElementById('title'), hint = document.getElementById('hint'), portrait = innerWidth <= 760 && innerHeight > innerWidth && st && tt;
   barH = bar ? bar.offsetHeight + 12 : 0; // read everything first, then write, so no extra layout is forced
   const titleR = portrait ? tt.getBoundingClientRect() : null, more = innerWidth <= 760 && bar && bar.classList.contains('more'), hintH = hint ? hint.offsetHeight : 0;
-  if (portrait && !st.classList.contains('open')) stripBottom = st.getBoundingClientRect().bottom;
-  // the title panel is measured when the scale is fitted: a warning that grows the run's panel later lies over the sky
-  // instead of pushing the reef under the toolbar
-  const refit = !more && !fitKey;
-  if (portrait && (refit || !titleFit)) titleFit = titleR.bottom;
-  topReserve = portrait ? Math.round(Math.max(titleFit, stripBottom)) + 6 : 0;
-  const bottom = (barH + 6) + 'px'; if (db && db.style.bottom !== bottom) db.style.bottom = bottom; // just above the toolbar
+  // the species strip takes the width the title leaves; set before the strip is measured, since its width sets its height
+  // (a run's wider title panel narrows it, and the Biodiversity / Water line wraps)
   const mw = portrait ? Math.max(150, Math.round(innerWidth - titleR.right - 20)) + 'px' : ''; // clear of the title
   if (st && st.style.maxWidth !== mw) st.style.maxWidth = mw;
+  // both top panels are measured when the scale is fitted: a warning that grows the run's panel later, or an invader's row
+  // in the strip, lies over the sky instead of pushing the reef under the toolbar
+  const refit = !more && !fitKey;
+  if (portrait && (refit || !titleFit)) titleFit = titleR.bottom;
+  if (portrait && (refit || !stripBottom)) { // measured folded and at the surface: open, or in the deep, it is another height
+    const cls = ['open', 'deepview'].filter(c => st.classList.contains(c));
+    st.classList.remove(...cls); stripBottom = st.getBoundingClientRect().bottom; st.classList.add(...cls);
+  }
+  topReserve = portrait ? Math.round(Math.max(titleFit, stripBottom)) + 6 : 0;
+  // where the panels end now (a run's panel grows with its warnings): the pan track stays visible below them
+  panelsNow = portrait ? Math.round(Math.max(titleR.bottom, st.classList.contains('open') ? 0 : st.getBoundingClientRect().bottom)) + 6 : 0;
+  const bottom = (barH + 6) + 'px'; if (db && db.style.bottom !== bottom) db.style.bottom = bottom; // just above the toolbar
   // The scale is fitted once per window size and per mode (resize, ui.js newGame clear fitKey), to the toolbar as it
-  // stands with More folded and the hint at least two lines tall on a phone (one on a desktop; it changes with the tool;
-  // a new mode starts on Watch): unfolding More, picking a tool or a warning growing the run's panel never zooms the
-  // ocean mid-game (the column only shifts, as it always did).
-  if (refit) { fitKey = 'fit'; fitScale(topReserve, barH + Math.max(0, (innerWidth <= 760 ? 34 : 17) - hintH)); }
+  // stands with More folded: on a narrow screen with the hint folded to its one line (it opens over the water for a while,
+  // ui.js showHint), elsewhere with the hint at least one line tall (it changes with the tool; a new mode starts on Watch).
+  // Unfolding More, picking a tool or a warning growing the run's panel never zooms the ocean mid-game (the column only
+  // shifts, as it always did).
+  if (refit) {
+    fitKey = 'fit';
+    let fitBar = barH + Math.max(0, 17 - hintH);
+    if (innerWidth <= 760 && hint && hint.classList.contains('full')) { hint.classList.remove('full'); fitBar = bar.offsetHeight + 12; hint.classList.add('full'); }
+    else if (innerWidth <= 760) fitBar = barH;
+    fitScale(topReserve, fitBar);
+  }
 }
 // world y that clears the toolbar with the camera at the top: the reef shelf and a band of rock under it
 const FRAME_Y = 820;
@@ -133,9 +147,11 @@ function drawRunoff() {
   }
   paintGrid();
 }
-// Water short of oxygen, over the darkness: stagnant, grey-brown and heavy, with flecks of rot sinking through it, so it
-// reads as dead water by day (darker and duller than the blue around it) and as grey murk at night. Labelled.
+// Water short of oxygen, over the darkness: the colour drains out of it, whatever the water's tint (blue, a green bloom,
+// night), and it goes a heavy dark grey with a defined top, the layer a diver sees, with flecks of rot sinking through it.
+// Labelled.
 const rotRnd = seeded(73), ROTFLECKS = Array.from({ length: 220 }, () => ({ x: rotRnd() * WW, y: rotRnd() * WH, v: 4 + rotRnd() * 7, ph: rotRnd() * 6.283, w: 1 + rotRnd() * 1.8 })); // own sequence: leaves Math.random to the rest
+const DZ = new Float32Array(GCOLS * GROWS); // how dead each cell looks, 0..1
 let rotLast = 0;
 function drawDeadZone() {
   if (!S.wqOn || S.avgHyp <= 0) return;
@@ -143,16 +159,21 @@ function drawDeadZone() {
   let wx = 0, wy = 0, w = 0;
   for (let i = 0; i < S.odef.length; i++) {
     const o = i * 4, ox = sat - S.odef[i], h = Math.max(0, Math.min(1, (ok - ox) / (ok - 0.1))), m = h * h * (3 - 2 * h);
-    d[o] = 44; d[o + 1] = 41; d[o + 2] = 33; d[o + 3] = m * 205;
+    DZ[i] = m; d[o] = 34; d[o + 1] = 35; d[o + 2] = 37; d[o + 3] = m * 255;
     if (ox < OXY.low) { wx += (i % GCOLS + 0.5) * GC; wy += ((i / GCOLS | 0) + 0.5) * GC; w++; }
   }
-  paintGrid();
+  runCtx.putImageData(runImg, 0, 0);
+  ctx.save(); ctx.imageSmoothingEnabled = true;
+  ctx.globalCompositeOperation = 'saturation'; ctx.globalAlpha = 0.92; ctx.drawImage(runCanvas, 0, 0, GCOLS * GC, GROWS * GC); // grey, not olive
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = DZ_DARK; ctx.drawImage(runCanvas, 0, 0, GCOLS * GC, GROWS * GC);  // and dark
+  ctx.restore();
+  drawDeadTop();
   // rot sinking through it: pale flecks, only where the water is dead
   const dt = Math.min(0.1, Math.max(0, S.t - rotLast)); rotLast = S.t;
   ctx.fillStyle = 'rgb(196,188,166)';
   for (const f of ROTFLECKS) {
     f.y += f.v * dt; f.x += Math.sin(S.t * 0.4 + f.ph) * 2 * dt; if (f.y > WH) { f.y = 0; f.x = rotRnd() * WW; }
-    const i = Math.min(GROWS - 1, f.y / GC | 0) * GCOLS + Math.min(GCOLS - 1, Math.max(0, f.x / GC | 0)), a = d[i * 4 + 3] / 205;
+    const a = DZ[Math.min(GROWS - 1, f.y / GC | 0) * GCOLS + Math.min(GCOLS - 1, Math.max(0, f.x / GC | 0))];
     if (a < 0.15) continue;
     ctx.globalAlpha = a * 0.55; ctx.fillRect(f.x, f.y, f.w, f.w);
   }
@@ -163,6 +184,46 @@ function drawDeadZone() {
     ctx.lineJoin = 'round'; ctx.lineWidth = 3 / scale; ctx.strokeStyle = 'rgba(2,7,13,.7)'; ctx.strokeText('dead zone · no oxygen', wx / w, wy / w);
     ctx.fillStyle = 'rgba(240,234,226,.95)'; ctx.fillText('dead zone · no oxygen', wx / w, wy / w); ctx.textAlign = 'left';
   }
+}
+const DZ_DARK = 0.66;
+// the edges of the dead water: in each column, where it turns dead going down (DZ crosses one half between two cells),
+// and where it ends again above the seabed, the floor of the layer (fainter); a pale line that sways a little over a soft
+// band. No top edge where the dead water reaches the surface, no floor where it reaches the seabed.
+function drawDeadTop() {
+  const tops = [], floors = []; let drawn = 0;
+  const cross = (c, r) => { const m0 = DZ[(r - 1) * GCOLS + c], m = DZ[r * GCOLS + c]; return (r - 0.5 + (0.5 - m0) / (m - m0)) * GC; };
+  const flush = (pts, k) => { if (pts.length) { strokeDeadTop(pts, k); drawn += pts.length; } pts.length = 0; };
+  for (let c = 0; c <= GCOLS; c++) {
+    let top = null, floor = null;
+    if (c < GCOLS && DZ[c] < 0.5) {
+      let r = 1; while (r < GROWS && DZ[r * GCOLS + c] < 0.5) r++;
+      if (r < GROWS) {
+        top = cross(c, r);
+        while (r < GROWS && DZ[r * GCOLS + c] >= 0.5) r++;
+        const x = (c + 0.5) * GC;
+        if (r < GROWS) { const y = cross(c, r); if (y < bedAt(x) - 12) floor = y; }
+      }
+    }
+    if (top !== null) tops.push([(c + 0.5) * GC, top]); else flush(tops, 1);
+    if (floor !== null) floors.push([(c + 0.5) * GC, floor]); else flush(floors, 0.55);
+  }
+  return drawn; // columns with an edge (the smoke test reads it)
+}
+function strokeDeadTop(pts, k) {
+  // a layer, not a drawn line: soft, swaying, and stronger in some places than others
+  const t = S.t, Y = (x, y) => y + Math.sin(x * 0.011 + t * 0.45) * 2.5, A = x => 0.55 + 0.45 * Math.sin(x * 0.017 + t * 0.2 + Math.sin(x * 0.005) * 2);
+  const ends = [[pts[0][0] - GC / 2, pts[0][1]], ...pts, [pts[pts.length - 1][0] + GC / 2, pts[pts.length - 1][1]]];
+  const seg = i => { const [xa, ya] = ends[i - 1], [x, y] = ends[i], [xb, yb] = ends[i + 1]; ctx.quadraticCurveTo(x, Y(x, y), (x + xb) / 2, Y((x + xb) / 2, (y + yb) / 2)); };
+  const from = i => { const [xa, ya] = ends[i - 1], [x, y] = ends[i]; ctx.moveTo((xa + x) / 2, Y((xa + x) / 2, (ya + y) / 2)); };
+  ctx.save(); ctx.lineJoin = 'round';
+  ctx.strokeStyle = `rgba(150,150,146,${(0.06 * k).toFixed(3)})`; ctx.lineWidth = 22; // a soft band, one stroke so it does not bead
+  ctx.beginPath(); from(1); for (let i = 1; i < ends.length - 1; i++) seg(i); ctx.stroke();
+  ctx.lineWidth = Math.max(1.6, 1.2 / scale);
+  for (let i = 1; i < ends.length - 1; i++) {
+    ctx.strokeStyle = `rgba(205,203,195,${(0.27 * k * A(ends[i][0])).toFixed(3)})`;
+    ctx.beginPath(); from(i); seg(i); ctx.stroke();
+  }
+  ctx.restore();
 }
 function paintGrid() {
   runCtx.putImageData(runImg, 0, 0);
@@ -531,7 +592,7 @@ let panSeenAt = -1e9, panLastX = 0;
 function drawPanTrack(now) {
   if (!panMode) return;
   if (Math.abs(cam.x - panLastX) > 0.5) { panSeenAt = now; panLastX = cam.x; }
-  const x0 = 16, w = innerWidth - 32, y = topReserve + 6, k = Math.max(0, Math.min(1, 1 - (now - panSeenAt - 600) / 900));
+  const x0 = 16, w = innerWidth - 32, y = Math.max(topReserve, panelsNow) + 6, k = Math.max(0, Math.min(1, 1 - (now - panSeenAt - 600) / 900));
   ctx.fillStyle = 'rgba(2,7,13,.35)'; rrect(x0 - 1, y - 1, w + 2, 5, 2.5);
   ctx.fillStyle = `rgba(234,247,255,${0.45 + 0.45 * k})`; rrect(x0 + cam.x / WW * w, y, innerWidth / scale / WW * w, 3, 1.5);
 }

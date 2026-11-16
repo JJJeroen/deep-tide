@@ -62,10 +62,10 @@ function newGame(m) {
   document.querySelector('[data-tool=stock]').title = run ? 'Locked in the Anthropocene run' : '';
   document.querySelector('[data-tool=pollute]').textContent = run ? 'Dump' : 'Pollute';
   pollSel.options[0].textContent = run ? 'waste' : 'plastic'; pollSel.options[1].textContent = run ? 'farm runoff' : 'runoff';
-  document.querySelector('[data-tool=invader]').textContent = run ? 'Skip ballast' : 'Release invader';
+  document.querySelector('[data-tool=invader]').innerHTML = run ? 'Skip ballast' : '<span class="lg">Release invader</span><span class="sh">Invader</span>';
   document.getElementById('tagline').textContent = run ? 'Anthropocene run' : m === 'learn' ? 'Learn to play' : 'A small ocean that runs without you.';
   document.getElementById('hudDur').textContent = '/ ' + fmtClock(RUN.DUR);
-  HAULED.length = 0; ptr.mpa = null; ptr.ghost = null;
+  HAULED.length = 0; ptr.mpa = null; ptr.ghost = null; hintSeen.clear();
   hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true;
   setTool('watch');
   coachReset(m);
@@ -199,11 +199,23 @@ function setExcluder(on) {
   EXCLUDER.on = on;
   const b = document.getElementById('exclBtn'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
 }
+// narrow screens (index.html): the hint is one line, opened in full the first time each tool is picked in a game; it folds
+// at the first touch on the water or after a while, and a tap on it opens or folds it
+const hintEl = document.getElementById('hint'), hintSeen = new Set();
+let hintTimer = 0;
+function showHint(full) {
+  clearTimeout(hintTimer); hintEl.classList.toggle('full', full);
+  if (full) hintTimer = setTimeout(() => hintEl.classList.remove('full'), 9000);
+}
+hintEl.addEventListener('click', () => showHint(!hintEl.classList.contains('full')));
 function setTool(t) {
   if (t === 'stock' && mode === 'run') return; // locked in the scored run
   tool = t;
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  document.getElementById('hint').textContent = (mode === 'run' ? HINTS_RUN : HINTS)[t === 'pollute' && POLL_KIND === 'runoff' ? 'runoff' : t] + (t === 'watch' && panMode ? ' Drag to look around.' : '');
+  document.getElementById('bar').dataset.picked = t; // narrow screens show the picked tool's setting by its hint (not data-tool: the tools' own selectors would find the bar)
+  const key = t === 'pollute' && POLL_KIND === 'runoff' ? 'runoff' : t;
+  hintEl.textContent = (mode === 'run' ? HINTS_RUN : HINTS)[key] + (t === 'watch' && panMode ? ' Drag to look around.' : '');
+  if (mode && !hintSeen.has(key)) { hintSeen.add(key); showHint(true); }
   // pan mode: once a game, say how to move the view while a tool has the drag
   if (panMode && mode && t !== 'watch' && !S.flags.panTip) { S.flags.panTip = true; log(matchMedia('(pointer: coarse)').matches ? 'With a tool picked, two fingers move the view.' : 'With a tool picked, Shift + wheel moves the view sideways.'); }
 }
@@ -259,6 +271,7 @@ view.addEventListener('pointerdown', e => {
     return;
   }
   if (e.button !== 0 || !e.isPrimary) return;
+  if (hintEl.classList.contains('full')) showHint(false); // read: back to one line, out of the way
   const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.cx = e.clientX; ptr.cy = e.clientY; ptr.down = true; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
   view.setPointerCapture(e.pointerId);
   drag.sx = e.clientX; drag.sy = e.clientY; drag.cx = cam.x; drag.cy = cam.y; drag.on = false;
@@ -372,4 +385,5 @@ function updateDepthBtn() {
   const deep = cam.y > 300; depthBtn.textContent = deep ? 'Surface ↑' : 'The deep ↓'; depthBtn.classList.toggle('pulse', !deep && !!D.whale && D.whale.phase !== 'surface' && D.whale.phase !== 'leave');
 }
 
+fitKey = ''; // fit again now the panels have their rows (render.js measured them empty while loading)
 resetWorld(); resetDeep(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen

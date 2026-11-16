@@ -18,6 +18,20 @@ function lightDot(g, x, y, col, r, n) { // a navigation or deck light at night: 
   g.fillStyle = '#ffffff'; g.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
   g.restore();
 }
+// a lit boat at night: its lights on the water around it, a warm glow along the waterline with glints that come and go
+// on the waves. World coordinates (x = the boat's middle, w = how far the light spreads), drawn over the sky.
+function waterLight(g, t, x, w, n, k = 1) {
+  if (n < 0.15) return;
+  const base = g.globalAlpha; // a ship fading in port fades its light with it
+  g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = base * 0.75 * n * k;
+  g.drawImage(glow('#ffdca0'), x - w, -w * 0.09, 2 * w, w * 0.18);
+  g.fillStyle = '#fff2d6';
+  for (let i = 0; i < 14; i++) {
+    const f = (i / 13) * 2 - 1, gx = x + f * w * 0.8 + Math.sin(t * 1.3 + i * 2.1) * 5, a = (1 - f * f) * (0.5 + 0.5 * Math.sin(t * 4.2 + i * 1.7));
+    g.globalAlpha = base * n * k * 0.8 * a; g.fillRect(gx, surfY(gx, t) + 0.6, 3 + (1 - f * f) * 5, 1.1);
+  }
+  g.restore();
+}
 function foam(g, t, x0, len, n, dir) { // bow wave and wake: flickering white froth along the waterline
   g.save(); g.fillStyle = `rgba(235,245,248,${0.75 - 0.45 * n})`;
   const base = g.globalAlpha;
@@ -99,7 +113,7 @@ function drawTrawlerTop(g, t, n, moving, o = {}) {
   if (moving) { foam(g, t, 88, 16, n, 1); foam(g, t, -88, 70, n, -1); }
   // lights: masthead, starboard (green), stern, deck floods over the gantry and the working deck
   lightDot(g, 34, -63, '#fff6dc', 12, n); lightDot(g, 53, -31, '#7dff9a', 9, n); lightDot(g, -89, -15, '#fff6dc', 8, n);
-  if (n > 0.15) { g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha *= 0.55 * n; g.drawImage(glow('#ffe2a8'), -100, -60, 80, 70); g.drawImage(glow('#ffe2a8'), -60, -48, 70, 50); g.restore(); }
+  if (n > 0.15) { g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha *= 0.9 * n; g.drawImage(glow('#ffe2a8'), -110, -66, 100, 84); g.drawImage(glow('#ffe2a8'), -66, -54, 90, 64); g.drawImage(glow('#fff0d0'), 0, -44, 60, 40); g.restore(); }
   g.lineCap = 'butt';
 }
 
@@ -181,5 +195,13 @@ function drawFarBoats(g, t, n, haze) {
     g.save(); g.translate(x, surfY(x, t) + 0.3); g.scale(b.s * Math.sign(b.v), b.s); g.rotate(Math.sin(t * 1.1 + b.x0) * 0.03);
     drawTrawlerTop(g, t, n, true, { haze, hz: 0.38, hull: b.hull, band: b.band });
     g.restore();
+    // at this size their own lights are specks: a masthead light that carries, and its light on the water
+    if (n > 0.15) {
+      const dir = Math.sign(b.v), my = surfY(x, t) - 63 * b.s;
+      waterLight(g, t, x, 60, n, 0.6);
+      g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha *= n;
+      g.drawImage(glow('#fff0cc'), x + 34 * b.s * dir - 9, my - 9, 18, 18); g.drawImage(glow('#ffe2a8'), x - 40 * b.s * dir - 12, surfY(x, t) - 22 * b.s - 8, 24, 16);
+      g.restore();
+    }
   }
 }

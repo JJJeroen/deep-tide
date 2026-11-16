@@ -74,6 +74,7 @@
   input[type=range] { width: 90px; accent-color: var(--accent); }
   select { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px; font: inherit; }
   #hint { flex-basis: 100%; text-align: center; color: var(--dim); font-size: 12px; min-height: 17px; }
+  .brk, .sh { display: none; }
   button:disabled { opacity: .35; cursor: not-allowed; }
   button:disabled:hover { background: rgba(255,255,255,.05); }
   input:disabled { opacity: .7; }
@@ -133,7 +134,7 @@
   .card .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .card .actions[hidden] { display: none; }
   .card .seedline { font-size: 12px; margin-top: 12px; } .card .seedline b { color: var(--text); font-weight: 600; letter-spacing: .04em; } .card .seedline a { color: var(--accent); }
-  @media (max-width: 760px) { #bio, #title p { display: none; } #stats { width: 160px; } #log { left: 12px; transform: none; width: calc(100vw - 196px); text-align: left; font-size: 12px; } #log div { margin-left: 0; } }
+  @media (max-width: 760px) { #title p { display: none; } #stats { width: 160px; } #bio { flex-wrap: wrap; gap: 0 8px; } #log { left: 12px; transform: none; width: calc(100vw - 196px); text-align: left; font-size: 12px; } #log div { margin-left: 0; } }
   @media (max-width: 760px) { #hud .clock small { display: none; } #hud .clock { flex-wrap: wrap; gap: 0 8px; } }
   @media (max-width: 640px) { .modes { grid-template-columns: 1fr; } }
   @media (max-width: 760px) { #bar { gap: 4px; padding: 8px; } #bar button, #bar select { padding: 6px 8px; } #bar .sep { margin: 0 1px; } input[type=range] { width: 70px; } }
@@ -142,6 +143,22 @@
   @media (max-width: 760px) { #moreBtn { display: inline-block; } #bar:not(.more) .opt { display: none; } #bar .sep { display: none; }
     #bar:not(.more) #pause.on { display: inline-block; } /* paused: Resume stays in reach */
     #bar button:disabled, #bar select:disabled, #bar label:has(input:disabled), #bar .pair:not(:has(:enabled)) { display: none; } } /* locked in this mode (the run HUD shows the warmth) */
+  /* narrow screens: two rows of tools under one line that belongs to the picked tool: its setting (the Excluder, what to
+     pour in, what to stock) and its hint, cut to one line. The hint opens in full the first time a tool is picked in a game
+     and folds at the first touch on the water (ui.js showHint); a tap on it opens or folds it. Short tool names. */
+  @media (max-width: 760px) {
+    .lg { display: none; } .sh { display: inline; }
+    .pair { display: contents; }
+    .pair > button { border-radius: 8px; }
+    .pair > select { border-radius: 8px; border-left: 1px solid var(--line); }
+    #hint { order: -2; flex: 1 1 0; min-width: 0; height: 32px; line-height: 32px; min-height: 0; padding: 0 2px; text-align: left;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    #hint.full { height: auto; line-height: 1.4; white-space: normal; padding: 7.6px 2px; } /* a short hint: about as tall as folded */
+    .brk { display: block; order: -1; flex-basis: 100%; height: 0; }
+    #exclBtn, #pollSel, #stockSel { order: -3; }
+    #bar:not([data-picked=trawl]) #exclBtn, #bar:not([data-picked=pollute]) #pollSel, #bar:not([data-picked=stock]) #stockSel { display: none; }
+    #stats:not(.open) #bio { margin-top: 3px; padding-top: 3px; font-size: 11px; }
+  }
   /* portrait phones: the species panel folds to one strip of dots and counts, so the ocean starts near the top of the
      screen; a tap opens the full panel over the water. Its max-width (ui/render: measureChrome) keeps it clear of the title. */
   @media (max-width: 760px) and (orientation: portrait) {
@@ -153,7 +170,7 @@
     #stats:not(.open) .row { gap: 5px; padding: 0; }
     #stats:not(.open) .row .n { min-width: 0; }
     #stats.open { width: 100vw; } /* as wide as its max-width allows */
-    #log { width: calc(100vw - 24px); }
+    #log { width: calc(100vw - 24px); text-align: center; } #log div { margin-left: auto; } /* centred under the waterline */
     /* in the deep the folded strip counts the deep animals instead */
     #stats.deepview:not(.open) #rows, #stats.deepview:not(.open) #deep .h, #stats.deepview:not(.open) #deep .also { display: none; }
     #stats.deepview:not(.open) #deep { display: block; margin: 0; padding: 0; border: 0; }
@@ -184,17 +201,17 @@
 <div class="panel" id="coach" hidden></div>
 
 <div class="panel" id="bar">
-  <div id="hint"></div>
+  <div id="hint"></div><span class="brk"></span>
   <button data-tool="watch" class="on">Watch</button>
   <button data-tool="net" class="harm">Net</button>
   <button data-tool="trawl" class="harm">Trawler</button>
   <button id="exclBtn" class="toggle" title="Excluder (E): a grid in the trawl net that lets turtles, sharks and mantas out, and some of the catch with them" aria-pressed="false">Excluder</button>
   <span class="pair"><button data-tool="pollute" class="harm">Pollute</button><select id="pollSel" title="What to pour in (P again switches)"><option value="plastic">plastic</option><option value="runoff">runoff</option></select></span>
-  <button data-tool="invader" class="harm">Release invader</button>
-  <button data-tool="reserve" title="Protected area (A)">Protected area</button>
+  <button data-tool="invader" class="harm"><span class="lg">Release invader</span><span class="sh">Invader</span></button>
+  <button data-tool="reserve" title="Protected area (A)"><span class="lg">Protected area</span><span class="sh">Protect</span></button>
   <span class="pair"><button data-tool="stock">Stock</button><select id="stockSel" title="Species to stock"></select></span>
   <span class="sep"></span>
-  <label class="s">Warmth <input type="range" id="temp" min="0" max="100" value="50"></label>
+  <label class="s opt">Warmth <input type="range" id="temp" min="0" max="100" value="50"></label>
   <span class="sep"></span>
   <button id="hintsBtn" class="opt" title="Hints (H)" aria-pressed="true">Hints</button>
   <button id="soundBtn" class="opt" title="Sound (M): every species is one note in the chord; a lost species goes silent" aria-pressed="true">Sound</button>
@@ -202,7 +219,7 @@
   <button id="speed">1×</button>
   <button id="reset" class="opt">Reset</button>
   <button id="menuBtn" class="opt">Menu</button>
-  <button id="moreBtn" aria-expanded="false" title="Hints, sound, pause, reset and the menu">More</button>
+  <button id="moreBtn" aria-expanded="false" title="Warmth, hints, sound, pause, reset and the menu">More</button>
 </div>
 
 <div class="overlay" id="menu">

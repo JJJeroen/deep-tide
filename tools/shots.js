@@ -80,6 +80,8 @@ const SHOTS = [
     await p.evaluate(() => { for (let x = 0; x <= 1600; x += 40) for (const y of [220, 420]) for (let k = 0; k < 8; k++) addRunoff(x, y, RUNOFF.r, RUNOFF.amt); __skip(240); __pump(60); });
   }],
   ['09-run-phone', PHONE, async p => { await p.tap('[data-mode=run]'); await p.evaluate(() => { setHints(false); __skip(150); __pump(60); }); }],
+  ['12-trawler-night-desktop', DESKTOP, async p => { await sandbox(p); await p.evaluate(() => { __skip(10); while (nightAt(S.t) < 0.95) __skip(1); startTrawl(470); for (let i = 0; i < 400 && S.trawlers.length && S.trawlers[0].x < 700; i++) __pump(1); }); }],
+  ['13-pollute-phone', PHONE, async p => { await sandbox(p, true); await p.evaluate(() => { __skip(20); __pump(30); }); await p.tap('[data-tool=pollute]'); await p.evaluate(() => __pump(30)); }],
   ['11-panned-phone', PHONE, async p => { await sandbox(p, true); await p.evaluate(() => { __skip(20); cam.x = cam.tx = camMaxX() * 0.7; __pump(60); }); }],
 ];
 
@@ -91,7 +93,10 @@ async function sandbox(p, tap) {
 (async () => {
   const browser = await chromium.launch({ executablePath: browserPath() });
   let failed = 0;
+  // ONLY=05,10 takes just the shots whose names start with those numbers
+  const only = (process.env.ONLY || '').split(',').filter(Boolean);
   for (const [name, opts, act] of SHOTS) {
+    if (only.length && !only.some(o => name.startsWith(o))) continue;
     const ctx = await browser.newContext(opts), p = await ctx.newPage(), errors = [];
     p.on('pageerror', e => errors.push(String(e)));
     p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

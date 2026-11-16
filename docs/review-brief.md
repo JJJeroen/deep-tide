@@ -27,6 +27,7 @@ It is for curious players, teens and adults, on a desktop or a phone. The point 
 - Jellyfish glow, by day too, and a jellyfish bloom is allowed to look beautiful.
 - On a phone held upright the sunlit scene fills the height between the panels and the toolbar, and the view shows part of the width at a time: the player drags sideways to look along the ocean (two fingers while a tool is picked). The thin bar at the top of the water shows which part is in view. On a desktop the whole width shows.
 - Messages from the ocean appear as small notices just under the waterline, centred.
+- On a phone the toolbar is one line for the picked tool, then two rows of tools with short names (Invader, Protect). That line holds the tool's setting (the Excluder for the Trawler, what to pour for Pollute, what to stock) and its hint cut to one line; the hint opens in full the first time a tool is picked in a game and when the player taps it. Warmth, hints, sound, pause, reset and the menu are behind More.
 
 ## Shots
 
@@ -45,3 +46,5 @@ It is for curious players, teens and adults, on a desktop or a phone. The point 
 | 09-run-phone | An Anthropocene run on a phone, 2.5 minutes in, at night |
 | 10-dead-zone-on-reef-desktop | Farm runoff 4 minutes later: the dead zone fills the lower water and reaches the reef |
 | 11-panned-phone | Sandbox on a phone, the view dragged to the right, over the drop-off |
+| 12-trawler-night-desktop | Sandbox at night, the player's trawler at work |
+| 13-pollute-phone | Sandbox on a phone, just after picking Pollute: its hint open, what to pour beside it |
