@@ -261,6 +261,103 @@ async function seeds(b) {
   await q.close();
 }
 
+// M9 photo mode: the ocean holds still, the panels step aside, the tools do nothing, and Save picture writes a PNG of the
+// world as framed, at 2 px per world unit, without the labels, ruler or cursor
+const pngSize = buf => buf.length > 24 && buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) } : null;
+async function savePicture(p) {
+  const [d] = await Promise.all([p.waitForEvent('download'), p.click('#photoSave')]);
+  const f = await d.path(), buf = fs.readFileSync(f);
+  return { name: d.suggestedFilename(), size: pngSize(buf), bytes: buf.length };
+}
+async function photoMode(b) {
+  console.log('photo mode');
+  const p = await openPage(b, 1600, 900);
+  await wait(p, 300); await p.keyboard.press('f'); await wait(p, 100);
+  check('photo: F does nothing on the mode picker', await count(p, () => !photo && !document.body.classList.contains('photo')));
+  await p.goto(URL + '?seed=photo-1'); await p.click('[data-mode=run]'); await p.evaluate(() => setHints(false)); await wait(p, 1200);
+  await p.keyboard.press('t'); // the Trawler picked before the photo
+  await p.keyboard.press('f'); await wait(p, 200);
+  check('photo: F pauses, every panel steps aside, the photo bar shows', await count(p, () => !!photo && paused && document.body.classList.contains('photo') && !photoBar.hidden
+    && [...document.querySelectorAll('.panel')].every(el => getComputedStyle(el).visibility === 'hidden')));
+  // nothing acts: a click on the water (the Trawler is picked), Space (Pause), a tool key; a drag frames the view
+  const t0 = await count(p, () => S.t), w = await toPage(p, 800, 400);
+  await p.mouse.click(w.x, w.y); await p.keyboard.press(' '); await p.keyboard.press('n'); await wait(p, 300);
+  check('photo: a click, Space and the tool keys do nothing, and the ocean holds still', await count(p, () => !S.trawlers.length && paused && tool === 'trawl') && (await count(p, () => S.t)) === t0);
+  const y0 = await count(p, () => cam.target);
+  await p.mouse.move(w.x, w.y); await p.mouse.down(); await p.mouse.move(w.x, w.y - 120, { steps: 6 }); await p.mouse.up(); await wait(p, 200);
+  check('photo: a drag frames the view', (await count(p, () => cam.target)) > y0 + 60 && (await count(p, () => !S.trawlers.length)), await count(p, () => 'cam ' + Math.round(cam.target)));
+  await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 100);
+  // the picture: 2 px per world unit (the whole width shows at 1600 px), no labels, ruler, tags, cursor or pan track
+  const spied = await p.evaluate(() => {
+    const names = ['drawRuler', 'drawCursor', 'drawTags', 'drawInspect', 'drawPanTrack', 'drawEdges'], was = names.map(n => window[n]), hit = [];
+    names.forEach((n, i) => { window[n] = (...a) => { hit.push(n); return was[i](...a); }; });
+    try { renderPhoto(); } finally { names.forEach((n, i) => { window[n] = was[i]; }); }
+    return hit;
+  });
+  check('photo: the picture leaves out the ruler, cursor, value tags, labels, pan track and the edge fade', !spied.length, spied.join(', '));
+  const pic = await savePicture(p), rect = await count(p, () => photoRect());
+  check('photo: Save picture downloads a PNG of the framed world at 2 px per world unit', pic.size && pic.size.w === 3200 && pic.size.w === rect.w && pic.size.h === rect.h && pic.bytes > 100000,
+    `${pic.name} ${pic.size && pic.size.w + 'x' + pic.size.h}, ${Math.round(pic.bytes / 1024)} KB`);
+  check('photo: the file is named after the ocean and the time', /^deep-tide-photo-1-\d+m\d\ds\.png$/.test(pic.name), pic.name);
+  await p.keyboard.press('Escape'); await wait(p, 600);
+  check('photo: Esc leaves; the game goes on with the panels and the tool it had', await count(p, () => !photo && !paused && photoBar.hidden && tool === 'trawl'
+    && getComputedStyle(document.getElementById('bar')).visibility === 'visible') && (await count(p, () => S.t)) > t0 + 0.2);
+  await p.keyboard.press(' '); await p.click('#photoBtn'); await wait(p, 100); await p.click('#photoDone'); await wait(p, 100);
+  check('photo: paused before, still paused after (the Photo button and Done)', await count(p, () => !photo && paused && document.getElementById('pause').textContent === 'Resume'));
+  // what follows the pointer holds still: the deep's lamp stays where it was aimed, the protected-area preview goes
+  await p.keyboard.press('w'); await p.evaluate(() => { cam.y = cam.target = 1200; }); await wait(p, 100);
+  const deepAt = await toPage(p, 800, 1500); await p.mouse.move(deepAt.x, deepAt.y); await wait(p, 900);
+  await p.keyboard.press('f'); await wait(p, 100);
+  const lamp0 = await count(p, () => [LAMP.x, LAMP.y, LAMP.k].map(v => v.toFixed(3)).join(' '));
+  await p.mouse.move(deepAt.x - 300, deepAt.y + 100, { steps: 5 }); await wait(p, 300); await p.mouse.move(800, 880, { steps: 5 }); await wait(p, 500);
+  check('photo: the deep\'s lamp holds still where it was aimed', lamp0 === await count(p, () => [LAMP.x, LAMP.y, LAMP.k].map(v => v.toFixed(3)).join(' ')) && +lamp0.split(' ')[2] > 0.9, lamp0);
+  await p.keyboard.press('Escape'); await p.keyboard.press('a'); await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 100);
+  const wat = await toPage(p, 800, 400); await p.mouse.move(wat.x, wat.y); await wait(p, 100);
+  const pv = [await count(p, () => !!mpaPreview())]; await p.keyboard.press('f'); await wait(p, 100); pv.push(await count(p, () => !!mpaPreview()));
+  await p.keyboard.press('Escape'); await wait(p, 100);
+  check('photo: no protected-area preview under the pointer', pv[0] && !pv[1], 'before ' + pv[0] + ', in photo mode ' + pv[1]);
+  errorCheck('photo');
+  await p.close();
+  // phone: Photo sits behind More; the ocean starts at the top of the screen while the panels are away, and the fit never changes
+  const q = await openPage(b, 390, 844, true);
+  await q.tap('[data-mode=sandbox]'); await q.evaluate(() => setHints(false)); await wait(q, 800);
+  const before = await count(q, () => ({ scale, top: topReserve }));
+  await q.tap('#moreBtn'); await wait(q, 100); await q.tap('#photoBtn'); await wait(q, 200);
+  check('phone photo: the ocean starts at the top of the screen, at the same scale; the bar keeps one line', await count(q, () =>
+    !!photo && topReserve === 0 && Math.abs(oy - SKY * scale) < 1 && document.getElementById('photoSave').offsetHeight < 44) && (await count(q, () => scale)) === before.scale,
+    await count(q, () => 'top ' + topReserve + ', sky at ' + Math.round(oy - SKY * scale) + ', save ' + document.getElementById('photoSave').offsetHeight + ' px'));
+  const qpic = await savePicture(q), qrect = await count(q, () => photoRect());
+  check('phone photo: the picture is what the screen shows, at 2 px per world unit', qpic.size && qpic.size.w === qrect.w && qpic.size.h === qrect.h && Math.abs(qrect.m * (await count(q, () => scale)) - 2) < 0.01,
+    qpic.size && qpic.size.w + 'x' + qpic.size.h);
+  await q.tap('#photoDone'); await wait(q, 200);
+  check('phone photo: Done puts the panels back where they were, the More drawer folded', await count(q, () => ({ scale, top: topReserve, more: document.getElementById('bar').classList.contains('more') }))
+    .then(a => a.scale === before.scale && a.top === before.top && !a.more));
+  errorCheck('phone photo');
+  await q.close();
+  // iPhone: the share sheet first (its Save Image goes to Photos); when Safari no longer counts the tap, a download
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+  const r = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, userAgent: IPHONE });
+  r.on('pageerror', e => errors.push(String(e))); r.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  await r.addInitScript(() => {
+    window.__shared = []; window.__shareFails = false;
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: d => !!(d && d.files && d.files.length) });
+    Object.defineProperty(navigator, 'share', { configurable: true, value: d => {
+      if (window.__shareFails) return Promise.reject(new DOMException('the tap no longer counts', 'NotAllowedError'));
+      window.__shared.push(...d.files.map(f => f.name + ' ' + f.type + ' ' + f.size)); return Promise.resolve();
+    } });
+  });
+  await r.goto(URL + '?seed=photo-1'); await r.tap('[data-mode=sandbox]'); await r.evaluate(() => setHints(false)); await wait(r, 500);
+  await r.tap('#moreBtn'); await wait(r, 100); await r.tap('#photoBtn'); await wait(r, 200);
+  await r.tap('#photoSave'); await r.waitForFunction(() => window.__shared.length, null, { timeout: 10000 }).catch(() => {});
+  const shared = await r.evaluate(() => window.__shared);
+  check('iPhone photo: Save picture opens the share sheet with the PNG', shared.length === 1 && /^deep-tide-photo-1-\d+m\d\ds\.png image\/png \d{5,}$/.test(shared[0]), shared.join(', ') || 'not shared');
+  await r.evaluate(() => { window.__shareFails = true; });
+  const [dl] = await Promise.all([r.waitForEvent('download', { timeout: 10000 }), r.tap('#photoSave')]);
+  check('iPhone photo: when Safari refuses the share, the picture downloads instead', /^deep-tide-photo-1-.*\.png$/.test(dl.suggestedFilename()), dl.suggestedFilename());
+  errorCheck('iPhone photo');
+  await r.close();
+}
+
 async function phone(b) {
   console.log('phone 390x844');
   const p = await openPage(b, 390, 844, true);
@@ -361,7 +458,7 @@ async function phone(b) {
 
 (async () => {
   const b = await chromium.launch({ executablePath: browserPath(), args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
-  try { await desktop(b); await seeds(b); await phone(b); }
+  try { await desktop(b); await seeds(b); await photoMode(b); await phone(b); }
   catch (e) { check('test ran to the end', false, e.message.split('\n')[0]); }
   finally { await b.close(); }
   const failed = results.filter(r => !r.ok);

@@ -231,6 +231,7 @@ function lampTarget() {
   return null;
 }
 function stepLamp(rdt) {
+  if (photo) return; // photo mode: the lamp holds still where it was, like everything else (not off after the pointer)
   const tg = lampTarget();
   LAMP.k += ((tg ? 1 : 0) - LAMP.k) * Math.min(1, rdt * 4);
   if (tg) {

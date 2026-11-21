@@ -1,7 +1,10 @@
 // ---------- rendering + input ----------
-const view = document.getElementById('view'), ctx = view.getContext('2d');
+// ctx is where every draw function paints: the screen, or for one frame the photo's own canvas (renderPhoto)
+const view = document.getElementById('view'), viewCtx = view.getContext('2d');
+let ctx = viewCtx;
 const COL = SPECIES.map(sp => sp.color);
 let scale = 1, ox = 0, oy = 0, tool = 'watch', paused = false, speedMul = 1; // speedMul = simulated seconds per real second
+let photo = null; // photo mode (ui.js enterPhoto): { wasPaused }; the scene is drawn without labels, ruler or cursor
 const ptr = { x: 0, y: 0, down: false, inside: false };
 const drag = { on: false, sx: 0, sy: 0, cx: 0, cy: 0 }; // dragging with the Watch tool moves the camera
 
@@ -50,6 +53,9 @@ function measureChrome() {
     else if (innerWidth <= 760) fitBar = barH;
     fitScale(topReserve, fitBar);
   }
+  // photo mode: the panels are hidden, so the column starts at the top of the screen; the fit above still counts them, so
+  // coming back from a photo never rescales the ocean (it only shifts back down)
+  if (photo) topReserve = 0;
 }
 // world y that clears the toolbar with the camera at the top: the reef shelf and a band of rock under it
 const FRAME_Y = 820;
@@ -86,7 +92,7 @@ function resize() {
   const bar = document.getElementById('bar'); if (bar) bar.classList.remove('more');
   const mb = document.getElementById('moreBtn'); if (mb) mb.setAttribute('aria-expanded', 'false');
   fitKey = ''; measureChrome();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  viewCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 addEventListener('resize', resize); resize();
 
@@ -178,7 +184,7 @@ function drawDeadZone() {
     ctx.globalAlpha = a * 0.55; ctx.fillRect(f.x, f.y, f.w, f.w);
   }
   ctx.globalAlpha = 1;
-  if (w >= 6) {
+  if (w >= 6 && !photo) {
     const fs = Math.max(13, 12 / scale);
     ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
     ctx.lineJoin = 'round'; ctx.lineWidth = 3 / scale; ctx.strokeStyle = 'rgba(2,7,13,.7)'; ctx.strokeText('dead zone · no oxygen', wx / w, wy / w);
@@ -427,7 +433,7 @@ function drawGhost(gn, t, gx, gy, squeeze = 1) {
 // ---------- protected area (sim.js S.mpa): a faint strip from the surface to the floor, its edges marked by lines of
 // light, and yellow marker buoys at the surface (drawMpaBuoys, after the sky). The Protected-area tool previews its strip.
 function mpaPreview() {
-  if (tool !== 'reserve' || !ptr.inside || ptr.y > WH) return null;
+  if (tool !== 'reserve' || !ptr.inside || ptr.y > WH || photo) return null;
   return ptr.mpa ? mpaRange(ptr.mpa.x0, ptr.mpa.x1) : mpaRange(ptr.x, ptr.x);
 }
 function drawMpaStrip(m, a, t) {
@@ -454,6 +460,7 @@ function drawMpaBuoys(t) {
     ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-6, -36); ctx.lineTo(6, -26); ctx.moveTo(6, -36); ctx.lineTo(-6, -26); ctx.stroke(); // the yellow X of a special mark
     ctx.restore();
   }
+  if (photo) return;
   ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'left'; // at the edge: the log is centred above the water
   ctx.fillStyle = 'rgba(170,245,228,.8)'; ctx.fillText('PROTECTED', m.x0 + 14, 30);
 }
@@ -502,7 +509,7 @@ function drawTrawlers(t) {
     for (let k = 0; k < 18; k++) { const u = ((k * 37 + t * 60) % 140); ctx.beginPath(); ctx.arc(bx - 84 - u, 8 + ((k * 13) % 14), 1 + (k % 3) * 0.6, 0, 6.283); ctx.fill(); }
     // in the scored run, what this pass is worth
     // (head office's trawler: its catch is not the player's, so it carries a name instead of a value)
-    if (S.game.on && (tr.catch || tr.company)) {
+    if (S.game.on && (tr.catch || tr.company) && !photo) {
       const fs = Math.max(15, 12 / scale);
       ctx.font = `600 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
       ctx.fillStyle = tr.company ? 'rgba(200,210,218,.95)' : 'rgba(240,214,140,.95)';
@@ -628,6 +635,13 @@ function frame(now) {
     stepReefFilm(stepped); stepFleet(stepped); // scene time follows the sim time actually stepped (capped at 8 steps)
     if (acc > dt) acc = 0;
   }
+  drawFrame(now);
+  updateUI();
+  audioTick(now);
+  requestAnimationFrame(frame);
+}
+// one frame of the scene into ctx, in screen coordinates (renderPhoto draws the same frame into a bigger canvas)
+function drawFrame(now) {
   ctx.fillStyle = '#02070d'; ctx.fillRect(0, 0, innerWidth, innerHeight);
   ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale);
   ctx.beginPath(); ctx.rect(0, -SKY, WW, SKY + DEEP_BOTTOM + 600); ctx.clip();
@@ -642,12 +656,31 @@ function frame(now) {
   drawDark(sceneLights()); drawDeadZone(); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t); drawMpaBuoys(S.t);
-  drawTags(); // after the sky: value tags can reach above the waterline
-  drawEdges(); drawRuler(); drawCursor();
+  if (!photo) drawTags(); // after the sky: value tags can reach above the waterline
+  if (!shooting) drawEdges(); // the fade into the dark beside the world; the picture is cut at the world's edges instead
+  if (!photo) { drawRuler(); drawCursor(); }
   ctx.restore();
-  drawPanTrack(now);
-  drawInspect(now);
-  updateUI();
-  audioTick(now);
-  requestAnimationFrame(frame);
+  if (!photo) { drawPanTrack(now); drawInspect(now); }
+}
+
+// M9 photo: the world as the screen shows it now (no panels, labels or cursor: photo mode), drawn again at 2 px per world
+// unit into a canvas of its own. 2 is about the sprites' own resolution (sprites.js ss 3 / RS 1.3) and the reef's (2), so
+// a bigger picture would only blur; capped at PHOTO_MAX_PX for phones. Only what is world is kept: no dark bands beside it.
+const PHOTO_SCALE = 2, PHOTO_MAX_PX = 12e6;
+let shooting = false; // true while renderPhoto draws
+function photoRect() {
+  const x0 = Math.max(0, ox), x1 = Math.min(innerWidth, ox + WW * scale);
+  const y0 = Math.max(0, oy - SKY * scale), y1 = Math.min(innerHeight, oy + (DEEP_BOTTOM + 600) * scale);
+  const m = Math.min(PHOTO_SCALE / scale, Math.sqrt(PHOTO_MAX_PX / ((x1 - x0) * (y1 - y0)))); // picture px per screen px
+  return { x0, y0, m, w: Math.round((x1 - x0) * m), h: Math.round((y1 - y0) * m) };
+}
+// The draw functions only read the sim (while paused nothing moves), so drawing a second frame now is safe.
+// null when the browser will not give a canvas that big (a phone short of memory)
+function renderPhoto() {
+  const r = photoRect(), c = document.createElement('canvas'); c.width = r.w; c.height = r.h;
+  const g = c.getContext('2d'); if (!g) return null;
+  g.setTransform(r.m, 0, 0, r.m, -r.x0 * r.m, -r.y0 * r.m);
+  const was = photo; photo = photo || {}; ctx = g; shooting = true;
+  try { drawFrame(performance.now()); } finally { ctx = viewCtx; photo = was; shooting = false; }
+  return c;
 }

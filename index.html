@@ -175,6 +175,14 @@
     #stats.deepview:not(.open) #rows, #stats.deepview:not(.open) #deep .h, #stats.deepview:not(.open) #deep .also { display: none; }
     #stats.deepview:not(.open) #deep { display: block; margin: 0; padding: 0; border: 0; }
   }
+  /* photo mode (ui.js enterPhoto): the panels hide but keep their size, so the fit and the camera's reach stay as they were */
+  body.photo .panel { visibility: hidden; }
+  body.photo canvas#view { cursor: grab; }
+  #photoBar { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; align-items: center;
+    max-width: calc(100vw - 24px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); padding: 8px 10px; }
+  #photoBar[hidden] { display: none; }
+  #photoBar button { flex: none; white-space: nowrap; }
+  #photoTip { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 0 4px; }
 </style>
 </head>
 <body>
@@ -215,12 +223,15 @@
   <span class="sep"></span>
   <button id="hintsBtn" class="opt" title="Hints (H)" aria-pressed="true">Hints</button>
   <button id="soundBtn" class="opt" title="Sound (M): every species is one note in the chord; a lost species goes silent" aria-pressed="true">Sound</button>
+  <button id="photoBtn" class="opt" title="Photo (F): the ocean holds still, the panels step aside, and you can save a picture">Photo</button>
   <button id="pause" class="opt">Pause</button>
   <button id="speed">1×</button>
   <button id="reset" class="opt">Reset</button>
   <button id="menuBtn" class="opt">Menu</button>
   <button id="moreBtn" aria-expanded="false" title="Warmth, hints, sound, pause, reset and the menu">More</button>
 </div>
+
+<div id="photoBar" hidden><span id="photoTip"></span><button id="photoSave" class="on">Save picture</button><button id="photoDone">Done</button></div>
 
 <div class="overlay" id="menu">
   <div class="card">

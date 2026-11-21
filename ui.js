@@ -241,6 +241,48 @@ document.querySelector('#menuBack button').addEventListener('click', () => {
 });
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => newGame(b.dataset.mode)));
 document.getElementById('hintsBtn').addEventListener('click', () => setHints(!hintsOn));
+// M9 photo mode: the ocean holds still, the panels step aside, a drag or the wheel frames the view, and Save picture writes
+// it as a PNG (render.js renderPhoto: the world as framed, at 2 px per world unit). F, Esc or Done leaves, and the game goes
+// on as it was, paused or not. A tap on the water does nothing, so framing with a short drag cannot end it by accident.
+const photoBar = document.getElementById('photoBar'), photoTip = document.getElementById('photoTip');
+function enterPhoto() {
+  if (photo || !menuEl.hidden || !endEl.hidden) return;
+  photo = { wasPaused: paused }; paused = true; ptr.down = false; drag.on = false; inspect = null;
+  foldMore(); showHint(false); if (document.activeElement) document.activeElement.blur();
+  document.body.classList.add('photo'); photoBar.hidden = false; measureChrome();
+  photoTip.textContent = matchMedia('(pointer: coarse)').matches ? 'Drag to frame it' : 'Drag or scroll to frame it · F or Esc to leave';
+}
+function leavePhoto() {
+  if (!photo) return;
+  paused = photo.wasPaused || S.game.over; photo = null; ptr.down = false; drag.on = false;
+  document.body.classList.remove('photo'); photoBar.hidden = true; measureChrome();
+}
+// iPhone and iPad: a download lands in Files, and in the installed app (sw.js) it may go nowhere, so the share sheet comes
+// first: its Save Image puts the picture in Photos. Safari wants the tap to still count when share() is called, after the PNG
+// is encoded; if it no longer does (NotAllowedError), the picture downloads instead. Closing the sheet saves nothing.
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function downloadPhoto(b, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  photoTip.textContent = 'Saved ' + name;
+}
+function savePhoto() {
+  const c = renderPhoto(), m = Math.floor(S.t / 60), sec = String(Math.floor(S.t % 60)).padStart(2, '0');
+  const name = 'deep-tide-' + SEED + '-' + m + 'm' + sec + 's.png', fail = () => { photoTip.textContent = 'This browser could not make the picture.'; };
+  if (!c) { fail(); return; }
+  c.toBlob(b => {
+    if (!b) { fail(); return; }
+    const file = IOS && typeof File === 'function' ? new File([b], name, { type: 'image/png' }) : null;
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file] }).catch(e => { if (!e || e.name !== 'AbortError') downloadPhoto(b, name); });
+      return;
+    }
+    downloadPhoto(b, name);
+  }, 'image/png');
+}
+document.getElementById('photoBtn').addEventListener('click', enterPhoto);
+document.getElementById('photoSave').addEventListener('click', savePhoto);
+document.getElementById('photoDone').addEventListener('click', leavePhoto);
 setHints(hintsOn);
 document.getElementById('soundBtn').addEventListener('click', () => setSound(!SOUND.on, true));
 setSound(SOUND.on);
@@ -271,6 +313,12 @@ view.addEventListener('pointerdown', e => {
     return;
   }
   if (e.button !== 0 || !e.isPrimary) return;
+  if (photo) { // photo mode: a drag frames the picture, and nothing else happens
+    ptr.down = true; ptr.id = e.pointerId; ptr.ghost = null; ptr.mpa = null; ptr.tap = null; inspect = null;
+    view.setPointerCapture(e.pointerId);
+    drag.sx = e.clientX; drag.sy = e.clientY; drag.cx = cam.x; drag.cy = cam.y; drag.on = false;
+    return;
+  }
   if (hintEl.classList.contains('full')) showHint(false); // read: back to one line, out of the way
   const p = toWorld(e); ptr.x = p.x; ptr.y = p.y; ptr.cx = e.clientX; ptr.cy = e.clientY; ptr.down = true; ptr.inside = true; ptr.mouse = e.pointerType === 'mouse';
   view.setPointerCapture(e.pointerId);
@@ -315,7 +363,7 @@ view.addEventListener('pointermove', e => {
   if (ptr.down && ptr.mpa) ptr.mpa.x1 = p.x;
   // dragging with Watch moves the view: down the column, and sideways in pan mode (a tap still picks an animal)
   const moved = panMode ? Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) : Math.abs(e.clientY - drag.sy); // a sideways slip only counts where the view pans
-  if (ptr.down && tool === 'watch' && (drag.on || moved > 8)) {
+  if (ptr.down && (tool === 'watch' || photo) && (drag.on || moved > 8)) {
     drag.on = true; inspect = null;
     cam.target = cam.y = clampCam(drag.cy - (e.clientY - drag.sy) / scale);
     cam.tx = cam.x = clampCamX(drag.cx - (e.clientX - drag.sx) / scale);
@@ -365,6 +413,8 @@ addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^(SELECT|INPUT)$/.test(e.target.tagName) || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
   if (!menuEl.hidden || !endEl.hidden) return; // the mode picker / end screen is up
+  if (e.key.toLowerCase() === 'f' || (photo && e.key === 'Escape')) { if (!e.repeat) { if (photo) leavePhoto(); else enterPhoto(); } return; }
+  if (photo && !PAN_KEYS[e.key] && CAM_KEYS[e.key] === undefined) return; // photo mode: only the camera keys, to frame it
   const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock', a: 'reserve' }[e.key.toLowerCase()];
   if (k === 'pollute' && tool === 'pollute') { if (!e.repeat) setPollKind(POLL_KIND === 'plastic' ? 'runoff' : 'plastic'); } // P again switches the kind (not on key repeat)
   else if (k) setTool(k);
