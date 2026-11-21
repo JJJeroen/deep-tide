@@ -437,3 +437,6 @@ function updateDepthBtn() {
 
 fitKey = ''; // fit again now the panels have their rows (render.js measured them empty while loading)
 resetWorld(); resetDeep(); setTool('watch'); requestAnimationFrame(frame); // the ocean runs behind the mode picker until a mode is chosen
+// M9: installable, and it plays offline (sw.js). Not on a file:// page, where there are no service workers.
+// Registered after the load, so its first copy of the files does not compete with the page's own first load.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

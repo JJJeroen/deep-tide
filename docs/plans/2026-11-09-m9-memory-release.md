@@ -31,11 +31,25 @@ Limits (from the review): exact only within one JavaScript engine. Math.pow/exp/
 Safari and Firefox, so a link sent to another browser starts the same ocean but can drift apart later in the run. Fine for
 sharing an ocean; it would matter for verifying someone else's replay or score.
 
-## 2. Photo mode (render, small)
-Pause, hide every panel, save a PNG. A camera button next to Pause/Speed (the toolbar is already full on a phone), key F.
-In photo mode the canvas is the whole screen; "Save picture" renders one frame into an offscreen canvas at 2x the world size
-(3200 x 1800, or the deep view at the same scale) and downloads it (canvas.toBlob, an `<a download>`). Esc, a tap or F leaves.
-Smoke check: entering photo mode hides the panels and pauses; the saved blob is a PNG with the expected size.
+## 2. Photo mode (built 2026-11-21)
+Pause, hide every panel, save a PNG. A Photo button before Pause (behind More on a phone), key F.
+As built:
+- The picture is the world as framed on the screen (a drag, the wheel or the camera keys frame it; the deep works the same),
+  not always the whole width: on a phone held upright that is the part of the width you see. It is drawn at 2 px per world
+  unit, which is about the sprites' own resolution (sprites.js ss 3 / RS 1.3) and the reef's (2), so bigger would only blur;
+  capped at 12 MP. Desktop 1600 x 900: 3200 x 1967. Phone 390 x 844: 1189 x 2573.
+- render.js: `ctx` is a `let`; the draw pass is `drawFrame(now)`, and `renderPhoto()` runs it once more into a canvas of its own
+  with a bigger transform, so everything that works in screen pixels (line widths, deepVisible) stays right. Labels, ruler,
+  cursor, value tags, the inspect label and the pan track stay out of photo mode and the picture.
+- The panels hide with `visibility: hidden`, so they keep their size and the fit never changes. On a portrait phone the
+  column starts at the top of the screen while they are away (topReserve 0), and drops back under the strip after.
+- No "a tap leaves": Done, Esc or F leave. A tap that leaves would end it when you frame with a short drag.
+- The file is `deep-tide-<seed>-<m>m<ss>s.png`. It downloads (an `<a download>`). On an iPhone or iPad the share sheet comes
+  first (navigator.share with the file: Save Image puts it in Photos; a download would land in Files, and in the installed
+  app may go nowhere). Safari wants the tap to still count after the PNG is encoded; if it refuses (NotAllowedError) the
+  picture downloads instead. Smoke-tested with a stubbed share under an iPhone user agent; NOT tried on a real iPhone.
+- The deep's lamp holds still in photo mode where it was aimed (it follows the pointer otherwise, and would have landed in
+  the picture where the pointer left the water); the protected-area preview does not show.
 
 ## 3. Follow one animal (render, plus two sim fields)
 Watch-click (tap) an animal: the camera eases in (zoom about 2x) and follows it; a card shows its name, age, energy and last
@@ -70,17 +84,29 @@ Questions for the owner:
   two pictures (the season 1 start and this season's end, taken with the part 4 recorder).
 - f. Saved in this browser only (no accounts), with an "abandon the campaign" button. OK?
 
-## 6. Installable (release, small)
+## 6. Installable (built 2026-11-21)
 manifest.webmanifest (name, short name, icons 192/512 + maskable, drawn from the favicon; theme and background colours;
-display standalone; orientation any, since phone portrait already works) and a small service worker that caches the static
-files so it plays offline (cache-first, one cache name per release, so a push replaces the old files). GitHub Pages serves the
-game under /deep-tide/, so every path stays relative. Check: Lighthouse installability, and the smoke test still passes with
-the worker registered.
+display standalone; orientation any, since phone portrait already works) and a small service worker so it plays offline.
+GitHub Pages serves the game under /deep-tide/, so every path stays relative.
+As built:
+- sw.js is network first, not cache first. Cache first needs the cache name bumped on every push, or players keep the old
+  files; with pushes going straight to live that would be forgotten. Network first: online, a load fetches the files as it
+  always did (a push shows on the next load); every file that arrives is kept, and the copy answers only when the network
+  does not. The page is kept once under the scope URL, so an ocean link (?seed=) opened offline still gets it.
+- Icons: tools/icons.js draws them from the favicon's shapes (icon-192/512 rounded as the favicon, a full-bleed maskable 512
+  with the fish inside the safe circle, apple-touch-icon 180). No in-game Install button: the browser offers it.
+- Checked in tools/smoke.js over a local http server: the worker installs and takes the page, Chromium's own installability
+  check (Page.getInstallabilityErrors, what Lighthouse uses) finds nothing but the test browser being off the record, the
+  icons have their stated sizes, online a changed file comes through fresh (a probe that counts up), and with the server
+  gone the last copy answers and an ocean link loads and plays. Mutation-tested: without the worker, with display "browser",
+  or with a cache-first worker, those checks fail.
+- On activate the worker deletes only its own old caches (names starting `deep-tide`): all the account's GitHub Pages repos
+  share the origin jjjeroen.github.io, and with it one Cache Storage.
 
 ## 7. Daily ocean (optional, cheap after part 1; owner's call)
 The menu offers "Today's ocean": seed = today's date (UTC, YYYY-MM-DD), so friends can play the same ocean and compare scores.
 No server, so no leaderboard.
 
 ## Order and sessions
-1 (done) -> 2 photo -> 6 installable -> 3 follow -> 4 timelapse -> 5 campaign (after the owner's answers) -> 7 if wanted.
+1 (done) -> 2 photo (done) -> 6 installable (done) -> 3 follow -> 4 timelapse -> 5 campaign (after the owner's answers) -> 7 if wanted.
 2 and 6 fit one session; 3, 4 and 5 are a session each. Handoff after each session in docs/summaries.

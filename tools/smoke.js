@@ -358,6 +358,60 @@ async function photoMode(b) {
   await r.close();
 }
 
+// M9 installable: over http (there are no service workers on file://) the worker installs and takes the page, Chromium
+// finds nothing that stops an install, and with the server gone an ocean link still loads from the worker's copy and plays
+async function installable(b) {
+  console.log('installable (http)');
+  const http = require('http');
+  const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
+  let probe = 0; // /__probe answers a new number each time: a file that changed on the server since the last load
+  const srv = http.createServer((req, res) => {
+    if (req.url.startsWith('/__probe')) { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(String(++probe)); return; }
+    let f = decodeURIComponent(req.url.split('?')[0]); if (f.endsWith('/')) f += 'index.html'; // (URL is the page's path in this file)
+    const fp = path.join(ROOT, f);
+    if (!fp.startsWith(ROOT + path.sep) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(fp)] || 'application/octet-stream' }); fs.createReadStream(fp).pipe(res);
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + srv.address().port + '/';
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 720 } });
+  try {
+    const p = await ctx.newPage();
+    p.on('pageerror', e => errors.push(String(e))); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await p.goto(base);
+    check('install: the service worker installs and activates', await p.evaluate(() => Promise.race([navigator.serviceWorker.ready.then(() => true), new Promise(r => setTimeout(() => r(false), 8000))])));
+    await p.reload(); await wait(p, 300);
+    check('install: after a reload the worker serves the page', await count(p, () => !!navigator.serviceWorker.controller));
+    const cdp = await ctx.newCDPSession(p);
+    const inst = (await cdp.send('Page.getInstallabilityErrors')).installabilityErrors.map(e => e.errorId);
+    // a Playwright context is off the record, which alone stops an install; anything else is ours
+    const ours = inst.filter(id => id !== 'in-incognito');
+    check('install: Chromium finds nothing in the page that stops an install', !ours.length, inst.join(', ') || 'none');
+    const man = await cdp.send('Page.getAppManifest');
+    check('install: the manifest parses without errors', !man.errors.length && /Deep Tide/.test(man.data || ''), man.errors.map(e => e.message).join(' | '));
+    const bad = await p.evaluate(async () => {
+      const m = await (await fetch('manifest.webmanifest')).json(), out = [];
+      for (const ic of m.icons.concat([{ src: 'icons/apple-touch-icon.png', sizes: '180x180' }])) {
+        const img = new Image(); img.src = ic.src; await img.decode();
+        if (img.naturalWidth + 'x' + img.naturalHeight !== ic.sizes) out.push(ic.src + ' is ' + img.naturalWidth + 'x' + img.naturalHeight);
+      }
+      return out;
+    });
+    check('install: every icon has the size the manifest gives', !bad.length, bad.join(', '));
+    const online = await p.evaluate(async () => [await (await fetch('__probe')).text(), await (await fetch('__probe')).text(), !!navigator.serviceWorker.controller]);
+    check('install: online, the worker fetches the file as it is now (a push shows on the next load)', online[2] && online[0] !== online[1], online.slice(0, 2).join(' then '));
+    errorCheck('install');
+    // the server goes away (a real failure for the worker's fetch, not only for the page's)
+    await new Promise(r => { srv.close(r); srv.closeAllConnections(); });
+    await p.goto(base + '?seed=offline-1'); await wait(p, 300);
+    await p.click('[data-mode=sandbox]'); const t0 = await count(p, () => S.t); await wait(p, 800);
+    const off = await p.evaluate(async () => (await fetch('__probe')).text());
+    check('install: offline, the copy kept last answers', off === online[1], off + ' (last online ' + online[1] + ')');
+    check('install: offline, an ocean link still loads and plays', (await count(p, () => S.t)) > t0 + 0.3 && (await count(p, () => SEED)) === 'offline-1', await count(p, () => SEED));
+    errorCheck('offline');
+  } finally { await ctx.close(); srv.close(); }
+}
+
 async function phone(b) {
   console.log('phone 390x844');
   const p = await openPage(b, 390, 844, true);
@@ -458,7 +512,7 @@ async function phone(b) {
 
 (async () => {
   const b = await chromium.launch({ executablePath: browserPath(), args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
-  try { await desktop(b); await seeds(b); await photoMode(b); await phone(b); }
+  try { await desktop(b); await seeds(b); await photoMode(b); await phone(b); await installable(b); }
   catch (e) { check('test ran to the end', false, e.message.split('\n')[0]); }
   finally { await b.close(); }
   const failed = results.filter(r => !r.ok);
