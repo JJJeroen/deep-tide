@@ -52,7 +52,7 @@ function newGame(m) {
   const seed = URL_SEED || freshSeed();
   // refit the scale to this mode's panels (render.js measureChrome), with the More drawer folded
   fitKey = ''; foldMore();
-  resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null; endFollow(true);
+  tlReset(); resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null; endFollow(true);
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;
@@ -112,6 +112,8 @@ function showEnd() {
   document.getElementById('endCard').innerHTML = `
     <h2>${fmtClock(RUN.DUR)}. The season is over.</h2>
     <p class="verdict">${r.verdict}</p>
+    <div class="tl" id="tl" hidden><canvas id="tlc" width="${TL.W}" height="${TL.H + TL.STRIP}" aria-label="Timelapse of the season, with the animal counts under it"></canvas>
+      <div class="tlbar"><button id="tlPlay" type="button">Replay</button><b id="tlClock">0:00</b><span>The whole season, sped up. Lines: animals, each scaled to its own peak.</span></div></div>
     <div class="bigscore">${r.score}</div><p style="margin-top:0">points</p>
     <table>
       <tr><td>Catch delivered</td><td>${Math.round(r.delivered)} of ${r.quotaTotal} demanded · quota met ${r.met} of ${r.minutes} minutes</td></tr>
@@ -133,6 +135,9 @@ function showEnd() {
     <p class="seedline">This was ocean <b>${SEED}</b>. <a href="?seed=${SEED}">Play this ocean again</a>, or send the link to someone: the same seed starts the same ocean.</p>
     <div class="actions"><button id="again" class="on">Play again</button><button id="toSandbox">Sandbox</button></div>`;
   endEl.hidden = false;
+  const tlOn = TL.frames.length > 1 && !!document.getElementById('tlc').getContext('2d');
+  document.getElementById('tl').hidden = !tlOn;
+  if (tlOn) tlMount(document.getElementById('tlc'), document.getElementById('tlPlay'), document.getElementById('tlClock'), !matchMedia('(prefers-reduced-motion: reduce)').matches);
   document.getElementById('again').onclick = () => newGame('run');
   document.getElementById('toSandbox').onclick = () => newGame('sandbox');
 }

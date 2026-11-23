@@ -3,7 +3,7 @@
 // when the network does not (offline, or the site unreachable). Same origin only; every path is relative, because GitHub
 // Pages serves the game under /deep-tide/.
 const CACHE = 'deep-tide'; // one cache; change the name only if what is kept in it changes shape
-const CORE = ['./', 'index.html', 'sim.js', 'deep.js', 'sprites.js', 'scene.js', 'boats.js', 'deepview.js', 'render.js', 'coach.js',
+const CORE = ['./', 'index.html', 'sim.js', 'deep.js', 'sprites.js', 'scene.js', 'boats.js', 'deepview.js', 'render.js', 'timelapse.js', 'coach.js',
   'audio.js', 'ui.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

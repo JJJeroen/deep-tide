@@ -4,6 +4,7 @@ const view = document.getElementById('view'), viewCtx = view.getContext('2d');
 let ctx = viewCtx;
 const COL = SPECIES.map(sp => sp.color);
 let scale = 1, ox = 0, oy = 0, tool = 'watch', paused = false, speedMul = 1; // speedMul = simulated seconds per real second
+let rec = false; // true while timelapse.js draws a frame: no lamp, the deep stays out of it
 let photo = null; // photo mode (ui.js enterPhoto): { wasPaused }; the scene is drawn without labels, ruler or cursor
 const ptr = { x: 0, y: 0, down: false, inside: false };
 const drag = { on: false, sx: 0, sy: 0, cx: 0, cy: 0 }; // dragging with the Watch tool moves the camera
@@ -693,11 +694,12 @@ function frame(now) {
         ptr.stroked = true;
       }
       step(dt); stepDeep(dt);
-      if (S.game.over) { paused = true; ptr.down = false; showEnd(); break; }
+      if (S.game.over) { paused = true; ptr.down = false; tlStep(true); showEnd(); break; }
       stepped += dt;
     }
     stepReefFilm(stepped); stepFleet(stepped); // scene time follows the sim time actually stepped (capped at 8 steps)
     if (acc > dt) acc = 0;
+    tlStep();
   }
   drawFrame(now);
   updateUI();
@@ -717,7 +719,7 @@ function drawFrame(now) {
   drawGhosts(S.t);
   drawDeep(S.t);
   drawSnow(S.t); drawDeepSnow(S.t); drawSilt(); drawTrawlers(S.t);
-  drawDark(sceneLights()); drawDeadZone(); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
+  drawDark(sceneLights()); drawDeadZone(); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); if (!rec) drawLamp(S.t);
   if (!photo) drawFollowRing(S.t);
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t); drawMpaBuoys(S.t);

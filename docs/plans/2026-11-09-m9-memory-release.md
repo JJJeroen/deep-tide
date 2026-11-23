@@ -69,6 +69,8 @@ longer on a phone. Record during the run instead: every 2 s, draw one small fram
 no lamp) into an offscreen canvas and keep it as a JPEG blob: about 300 frames, roughly 5 MB. The end screen plays them back at
 30 fps with the clock and the population sparklines under it. Recording costs one extra small render every 2 s.
 
+As built (2026-11-23): see docs/summaries/SESSION-2026-11-23-timelapse.md. timelapse.js; 480 x 289, 301 frames, about 2.7 MB; autoplays once with Replay; the clock is HTML; run mode only.
+
 ## 5. Shifting baselines campaign (big bet: needs the owner's calls first)
 The idea (roadmap): each season starts from the ocean the last one left behind, and the start message still says "The water
 is calm." The end screen puts your first ocean next to this one. Daniel Pauly's shifting baselines: every generation takes the

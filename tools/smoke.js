@@ -609,9 +609,79 @@ async function phone(b) {
   await p.close();
 }
 
+// M9 part 4 timelapse: a frame every 2 s of a scored run, drawn from a fixed camera, played back on the end screen
+const TLPIX = `(() => { const d = TL.cv.getContext('2d').getImageData(0, 0, TL.W, TL.H).data; let h = 0; for (let i = 0; i < d.length; i += 7) h = (h * 31 + d[i]) % 1e9; return h; })()`;
+async function timelapse(b) {
+  console.log('timelapse');
+  const p = await openPage(b, 1280, 800);
+  await p.click('[data-mode=run]'); await wait(p, 300);
+  check('timelapse: nothing is recorded in the sandbox', await p.evaluate(() => { newGame('sandbox'); for (let i = 0; i < 90; i++) { step(1 / 30); tlStep(); } return TL.frames.length === 0; }));
+  // the same run with and without the recorder: the sim must not notice it (counts, agents, reef, seeded streams)
+  const run = rec => p.evaluate(`(() => { newGame('run'); resetWorld('tl-fp'); resetDeep('tl-fp'); startRun(); tlReset(); mode = 'run'; paused = true; /* the page's own loop must not add frames or steps */
+    for (let i = 0; i < 30 * 400; i++) { step(1 / 30); stepDeep(1 / 30); ${rec ? 'tlStep();' : ''} } return ${FP} + JSON.stringify(S.game.parts || 0) + S.reef.bleach + '|' + S.avgPoll; })()`);
+  const plain = await run(false), nPlain = await count(p, () => TL.frames.length);
+  const taped = await run(true), nTaped = await count(p, () => TL.frames.length);
+  check('timelapse: a 400 s fixed-seed run gives the same result with the recorder on', plain === taped && nPlain === 0 && nTaped === 201, nTaped + ' frames');
+  await wait(p, 800);
+  check('timelapse: every frame becomes a JPEG, one every 2 s, within the memory cap', await count(p, () =>
+    TL.frames.every((f, i) => f.blob && f.blob.type === 'image/jpeg' && (i === 0 || Math.abs(f.t - TL.frames[i - 1].t - 2) < 0.05)) && TL.frames.length <= TL.MAX),
+    await count(p, () => (TL.frames.reduce((a, f) => a + f.blob.size, 0) / 1e6).toFixed(2) + ' MB'));
+  // the camera is fixed: panning, zooming and the deep view do not change what is recorded; ctx and the view come back
+  const fixed = await p.evaluate(`(() => { const sv = [ctx, ox, oy, scale, photo, shooting, rec].join('|');
+    TL.next = 0; tlStep(); const a = ${TLPIX}; cam.y = cam.target = 1500; ox += 40; scale *= 1.7; TL.next = 0; tlStep(); const c = ${TLPIX};
+    const back = [ctx, ox - 40, oy, scale / 1.7, photo, shooting, rec].join('|'); cam.y = cam.target = -SKY; return { same: a === c, ok: back.split('|')[0] === sv.split('|')[0] && photo === null && !shooting && !rec }; })()`);
+  check('timelapse: the frame ignores the player\'s view and leaves the view as it was', fixed.same && fixed.ok, JSON.stringify(fixed));
+  // a mid-run frame is not blank and has no lamp or labels (pixel check on the sea, not the sky)
+  check('timelapse: a frame holds a lit sea', await count(p, () => { const d = TL.cv.getContext('2d').getImageData(100, 80, 280, 120).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2]; return s / (d.length / 4) > 30; }));
+  // the end screen
+  await p.evaluate(() => { newGame('run'); });
+  await p.evaluate(() => { speedMul = 4; });
+  await wait(p, 5000);
+  const live = await count(p, () => ({ n: TL.frames.length, t: S.t }));
+  check('timelapse: the page records on its own at 4x (real frames)', live.n >= 2 && Math.abs(live.n - (Math.floor(live.t / 2) + 1)) <= 1, JSON.stringify(live));
+  await p.evaluate(() => { newGame('run'); resetWorld('tl-end'); resetDeep('tl-end'); startRun(); tlReset(); mode = 'run'; speedMul = 1; paused = true;
+    for (let i = 0; i < 30 * 600; i++) { step(1 / 30); stepDeep(1 / 30); tlStep(); if (S.game.over) break; } tlStep(true); });
+  await wait(p, 800);
+  check('timelapse: 301 frames over a full run, the last one at 10:00', await count(p, () => TL.frames.length === 301 && TL.frames[300].t >= 599.9 && TL.frames[300].blob), await count(p, () => TL.frames.length));
+  await p.evaluate(() => { showEnd(); });
+  check('timelapse: the end screen shows the player, playing at once', await count(p, () => !document.getElementById('tl').hidden && document.getElementById('tlPlay').textContent === 'Playing'));
+  const px = () => p.evaluate(() => { const c = document.getElementById('tlc'), d = c.getContext('2d').getImageData(0, 0, TL.W, TL.H + TL.STRIP).data; let h = 0; for (let i = 0; i < d.length; i += 11) h = (h * 31 + d[i]) % 1e9; return h; });
+  await wait(p, 2000); const h1 = await px(); await wait(p, 1500); const h2 = await px();
+  check('timelapse: the picture moves while it plays', h1 !== h2);
+  check('timelapse: the clock is real text and moves with it', await count(p, () => /^\d:\d\d$/.test(document.getElementById('tlClock').textContent) && document.getElementById('tlClock').textContent !== '0:00'));
+  await shot(p, '8-timelapse-playing');
+  await p.waitForFunction(() => document.getElementById('tlPlay').textContent === 'Replay', null, { timeout: 15000 }).catch(() => {});
+  check('timelapse: after about 10 s it rests on the last frame and offers Replay', await count(p, () => document.getElementById('tlPlay').textContent === 'Replay' && !document.getElementById('tlPlay').disabled));
+  const hEnd = await px(); await wait(p, 600);
+  check('timelapse: at rest it stays still', hEnd === await px());
+  await shot(p, '8-timelapse-done');
+  await p.click('#tlPlay'); await wait(p, 700);
+  check('timelapse: Replay plays it again', await count(p, () => document.getElementById('tlPlay').textContent === 'Playing'));
+  // a new game from the end screen stops it and starts a clean recording
+  await p.click('#again'); await wait(p, 600);
+  check('timelapse: a new game clears the frames, stops the player and lets go of the old frames', await count(p, () => TL.frames.length <= 1 && document.getElementById('end').hidden && !TL.play && !document.getElementById('tlPlay').onclick));
+  check('timelapse: a recorder that throws does not stop the game', await p.evaluate(() => { const real = drawFrame; let ok = true; try { TL.next = 0; TL.frames.length = 0; window.drawFrame = null; drawFrame = () => { throw new Error('boom'); }; tlStep(); } catch (e) { ok = false; } drawFrame = real; const off = TL.MAX === 0; TL.MAX = 400; return ok && off && ctx === viewCtx && !rec; }));
+  errorCheck('timelapse');
+  await p.close();
+  // reduced motion: no autoplay, it shows the final frame and waits for Play. A phone-width card: the picture fits inside it
+  const q = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+  q.on('pageerror', e => errors.push(String(e)));
+  await q.goto(URL + '?seed=tl-phone'); await wait(q, 400); await q.tap('[data-mode=run]'); await wait(q, 400);
+  await q.evaluate(() => { for (let i = 0; i < 30 * 600; i++) { step(1 / 30); stepDeep(1 / 30); tlStep(); if (S.game.over) break; } tlStep(true); paused = true; showEnd(); }); // the last JPEG is still encoding when the end screen opens
+  await wait(q, 800);
+  check('timelapse: the last frame is shown as itself even if it was still encoding when the end screen opened', await count(q, () => document.getElementById('tlClock').textContent === '10:00' && !!TL.frames[TL.frames.length - 1].blob));
+  check('timelapse (reduced motion): it waits for Play and shows the last frame', await count(q, () => document.getElementById('tlPlay').textContent === 'Play' && !document.getElementById('tlPlay').disabled && TL.play.last === TL.frames.length - 1));
+  check('timelapse (phone): the picture fits the card', await count(q, () => { const c = document.getElementById('tlc').getBoundingClientRect(), k = document.getElementById('endCard').getBoundingClientRect(); return c.width > 250 && c.left >= k.left && c.right <= k.right + 0.5 && c.right <= innerWidth; }));
+  await shot(q, '8-timelapse-phone');
+  await q.tap('#tlPlay'); await wait(q, 600);
+  check('timelapse (phone): a tap on Play plays it', await count(q, () => document.getElementById('tlPlay').textContent === 'Playing'));
+  errorCheck('timelapse phone');
+  await q.close();
+}
+
 (async () => {
   const b = await chromium.launch({ executablePath: browserPath(), args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
-  try { await desktop(b); await seeds(b); await photoMode(b); await followMode(b); await phone(b); await installable(b); }
+  try { await desktop(b); await seeds(b); await photoMode(b); await followMode(b); await timelapse(b); await phone(b); await installable(b); }
   catch (e) { check('test ran to the end', false, e.message.split('\n')[0]); }
   finally { await b.close(); }
   const failed = results.filter(r => !r.ok);
