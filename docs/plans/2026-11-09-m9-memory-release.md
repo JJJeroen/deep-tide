@@ -105,6 +105,21 @@ Owner's answers (2026-11-23):
 - f. Saved in this browser only (localStorage, no accounts), with an "abandon the campaign" button.
 - Each season's start message still says "The water is calm." (that is the point of shifting baselines).
 
+As built (2026-11-23): see docs/summaries/SESSION-2026-11-23-generations.md.
+- sim.js (headless, shared with tune.js): GEN { SEASONS 5, HEAL 300 }, oceanState()/loadOcean() (exact; agents as a key list
+  plus rows; -0, NaN and the infinities survive JSON), startHeal(seed) (no game, no trawlers out, no protected area, warmth back
+  to TEMP_START), beginSeason(seed) (clock back to 0 with times kept relative, a fresh log that says "The water is calm.").
+  deep.js: deepState()/loadDeep()/seedDeep(). The deep carries over too. Seeds: season k <campaign>.s<k>, the heal after it
+  <campaign>.h<k>; season 1 is resetWorld(<campaign>.s1) + startRun(), an ordinary Anthropocene run.
+- Heal: 300 sim seconds, measured with tune.js `campaign` (the numbers are by GEN in sim.js and in the handoff). It runs in a Web
+  Worker (heal.js) started the moment a season ends, so it is mostly done while the end card is read; the heal card then plays
+  its 12 snapshots back (a bar and a clock: "Left alone 2:30 of 5:00"). No worker (file://, or it fails): the page steps it.
+- campaign.js: menu entry Generations; a season is run mode plus CAMP. Saved (localStorage key deep-tide.generations, ~120-200
+  KB, versioned) at a season's end and after the heal; nothing during play, so a reload mid-season starts that season over.
+  The end card adds the first ocean next to this one (two pictures from the timelapse recorder, counts, biodiversity, water) and
+  the scores so far; the final screen (after season 5, or on abandoning after at least one season) gives the campaign score
+  (the average), the first and last ocean in words and pictures, and clears the save.
+
 ## 6. Installable (built 2026-11-21)
 manifest.webmanifest (name, short name, icons 192/512 + maskable, drawn from the favicon; theme and background colours;
 display standalone; orientation any, since phone portrait already works) and a small service worker so it plays offline.

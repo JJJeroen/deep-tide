@@ -74,6 +74,18 @@ function resetDeep(seed = SEED) {
   }
   countDeep();
 }
+// M9 part 5 (Generations): the deep carries over between seasons with the sunlit ocean (sim.js oceanState). Reseeded at each
+// boundary like the sunlit sim; the whale on a visit, the falls and the bones carry over as they are.
+function seedDeep(seed) { drand = makeRng(seed + '/deep'); }
+function deepState() {
+  return { agents: packRows(D.agents), snow: D.snow, floor: D.floor, falls: D.falls.map(f => ({ ...f })), bones: D.bones.map(b => ({ ...b })),
+    whale: D.whale ? { ...D.whale } : null, nextWhale: D.nextWhale, arriveT: { ...D.arriveT }, t: D.t, visits: D.visits };
+}
+function loadDeep(o) {
+  D.agents = unpackRows(o.agents); D.snow = o.snow; D.floor = o.floor; D.falls = o.falls.map(f => ({ ...f })); D.bones = o.bones.map(b => ({ ...b }));
+  D.whale = o.whale ? { ...o.whale } : null; D.nextWhale = o.nextWhale; D.arriveT = { ...o.arriveT }; D.t = o.t; D.visits = o.visits;
+  countDeep();
+}
 function countDeep() { const c = {}; for (const k of DEEP_KINDS) c[k] = 0; for (const a of D.agents) if (!a.dead) c[a.k]++; D.counts = c; return c; }
 function nearestDeep(x, y, r, k, self) {
   let best = null, bd = r * r;

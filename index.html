@@ -102,7 +102,7 @@
     max-height: calc(100vh - 32px); overflow-y: auto; touch-action: pan-y; user-select: text; }
   .card h2 { margin: 0 0 4px; font-size: 16px; letter-spacing: .12em; text-transform: uppercase; font-weight: 600; }
   .card p { margin: 6px 0; color: var(--dim); }
-  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+  .modes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
   #menu .card { max-width: 660px; }
   #menu { overflow-y: auto; align-items: safe center; } /* an opened sound guide can be taller than a phone */
   .listen { margin-top: 12px; font-size: 13px; color: var(--dim); }
@@ -142,6 +142,25 @@
   .card h3 { margin: 12px 0 2px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
   .card .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .card .actions[hidden] { display: none; }
+  /* M9 part 5 Generations (campaign.js): first ocean vs now, the heal, the abandon question */
+  #genSaved { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  #genSaved[hidden] { display: none; }
+  #genSaved button, .card .actions .warnb { font-size: 12px; padding: 5px 10px; }
+  .ask { color: var(--text); font-size: 12px; }
+  .warnb { border-color: var(--danger); color: var(--danger); }
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .cmp figure { margin: 0; } .cmp figure[hidden] { display: none; }
+  .cmp img { display: block; width: 100%; aspect-ratio: 480 / 289; object-fit: cover; border-radius: 6px; background: #041420; }
+  .cmp figcaption { color: var(--dim); font-size: 11px; margin-top: 3px; }
+  .card .cmpt th { text-align: right; color: var(--dim); font-weight: 600; font-size: 11px; padding: 2px 0; }
+  .card .cmpt td + td, .card .cmpt th + th { text-align: right; width: 26%; }
+  .cmpt .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .healbar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; margin: 12px 0 4px; }
+  .healbar i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .healclock b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .card .moved { font-size: 12px; }
+  #end.light { background: rgba(1, 6, 12, .12); align-items: flex-end; }
+  #end.light .card { max-width: 440px; margin-bottom: 8px; }
   .card .seedline { font-size: 12px; margin-top: 12px; } .card .seedline b { color: var(--text); font-weight: 600; letter-spacing: .04em; } .card .seedline a { color: var(--accent); }
   @media (max-width: 760px) { #title p { display: none; } #stats { width: 160px; } #bio { flex-wrap: wrap; gap: 0 8px; } #log { left: 12px; transform: none; width: calc(100vw - 196px); text-align: left; font-size: 12px; } #log div { margin-left: 0; } }
   @media (max-width: 760px) { #hud .clock small { display: none; } #hud .clock { flex-wrap: wrap; gap: 0 8px; } }
@@ -269,7 +288,9 @@
       <button data-mode="learn"><b>Learn to play</b><span>Five short steps: what lives here, the net, the trawler, the quota, the ballast ship.</span></button>
       <button data-mode="sandbox"><b>Sandbox</b><span>No clock, no score. Watch, meddle, break it, stock it back.</span></button>
       <button data-mode="run"><b>Anthropocene run</b><span>Ten minutes. A fleet that needs more fish every minute, and water that keeps warming.</span></button>
+      <button data-mode="gen"><b>Generations</b><span id="genSub">Five seasons on one ocean. Each new fleet inherits the water the last one left, and calls it normal.</span></button>
     </div>
+    <div id="genSaved" hidden></div>
     <details class="listen">
       <summary>What you're hearing</summary>
       <ul>
@@ -301,5 +322,6 @@
 <script src="coach.js"></script>
 <script src="audio.js"></script>
 <script src="ui.js"></script>
+<script src="campaign.js"></script>
 </body>
 </html>

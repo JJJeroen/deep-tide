@@ -882,4 +882,79 @@ function verdict({ quota, lost, bio, water, bycatch }) {
   if (lost >= 2) return 'Short on fish, and short on species. Nobody won this one.';
   return 'Some fish, some losses. Most real oceans look like this.';
 }
+
+// ---- M9 part 5 "Generations": the shifting-baselines campaign (plan docs/plans/2026-11-09-m9-memory-release.md part 5).
+// Up to GEN.SEASONS Anthropocene runs on one ocean. After each season the ocean is left alone for GEN.HEAL sim seconds: no
+// fleet, no head office, nobody at the controls. Demand and warming start over every season; only the ocean carries over
+// (owner, 23 Nov: carried over, they made later seasons unwinnable whatever the player did).
+// Season k plays on seed <campaign>.s<k> and the heal after it on <campaign>.h<k>, so a campaign is reproducible like a run.
+// Season 1 is an ordinary run: resetWorld(<campaign>.s1) + startRun().
+// oceanState() / loadOcean() carry the sunlit ocean exactly (deep.js deepState / loadDeep the deep). What they leave out is
+// rebuilt from the rest (counts, the hash) or started over at each boundary by startHeal / beginSeason: the log, the sparkline
+// history, message flags, effects, trawlers still out, the protected area, the run itself. RNG state is not saved: every
+// boundary reseeds. tools/smoke.js checks that a save and load at either boundary changes nothing that follows.
+// HEAL measured 2026-11-23 (node tune.js 0 40 campaign bot=steward,greedy seed=gen40 heal=600|300; season starts 2-5, 160 per bot):
+// 600 s healed nearly everything: steward 6.9-7.0 species and 93-95% biodiversity, greedy 6.4-6.7 and 91-92%. At 300 s the
+// steward still hands on 6.8-7.0 species and 93-94% (the first ocean: 7, 91%), while greedy's sharks (missing at 131 of 160
+// starts) and turtles (86) mostly stay gone and the next fleet inherits 82-85%. 300 it is: it also halves the heal's cost.
+const GEN = { SEASONS: 5, HEAL: 300, V: 1 };
+const healSteps = () => Math.round(GEN.HEAL * 30); // the heal is stepped at the sim's fixed 1/30 s
+// agents as a key list + one row each (no key names repeated ~600 times); the keys are collected, so a new field is kept too
+function packRows(list) {
+  const keys = [], seen = new Set();
+  for (const a of list) for (const k in a) if (!seen.has(k)) { seen.add(k); keys.push(k); }
+  return { keys, rows: list.map(a => keys.map(k => a[k] === undefined ? null : a[k])) };
+}
+function unpackRows(p) {
+  return p.rows.map(r => { const a = {}; for (let i = 0; i < p.keys.length; i++) if (r[i] !== null) a[p.keys[i]] = r[i]; return a; });
+}
+// JSON carries every number exactly except -0 (atan2 tells it from 0), NaN and the infinities: those go as { $n: '...' }
+const jsonPack = (k, v) => typeof v === 'number' && (Object.is(v, -0) || !isFinite(v)) ? { $n: Object.is(v, -0) ? '-0' : String(v) } : v;
+const jsonUnpack = (k, v) => v && typeof v === 'object' && typeof v.$n === 'string' && Object.keys(v).length === 1 ? (v.$n === '-0' ? -0 : Number(v.$n)) : v;
+const OCEAN_NUMS = ['t', 'temp', 'plankAcc', 'avgPoll', 'avgNutr', 'hypFrac', 'avgHyp', 'bloomN', 'night', 'scarMean', 'detritus', 'seabed', 'upwell', 'sinkFlux'];
+const OCEAN_LISTS = ['heal', 'rescue', 'harm', 'zero', 'harmed'];
+const OCEAN_GRIDS = ['poll', 'nutr', 'rot', 'odef', 'scar'];
+function oceanState() {
+  const o = { v: GEN.V, agentId: AGENT_ID, agents: packRows(S.agents), wqOn: S.wqOn, reef: { bleach: S.reef.bleach, dead: S.reef.dead },
+    ghosts: S.ghosts.map(g => ({ x: g.x, y: g.y, age: g.age, vx: g.vx, kills: g.kills, held: g.held.map(h => ({ ...h })) })), mpa: S.mpa ? { ...S.mpa } : null };
+  for (const k of OCEAN_NUMS) o[k] = S[k];
+  for (const k of OCEAN_LISTS) o[k] = S[k].slice();
+  for (const k of OCEAN_GRIDS) o[k] = Array.from(S[k]);
+  return o;
+}
+function loadOcean(o) {
+  if (!o || o.v !== GEN.V) throw new Error('not an ocean of this version');
+  for (const k of OCEAN_GRIDS) if (!Array.isArray(o[k]) || o[k].length !== S[k].length) throw new Error('ocean grid ' + k + ' has the wrong size');
+  AGENT_ID = o.agentId; S.agents = unpackRows(o.agents); S.newborns = [];
+  for (const k of OCEAN_NUMS) S[k] = o[k];
+  for (const k of OCEAN_LISTS) S[k] = o[k].slice();
+  for (const k of OCEAN_GRIDS) S[k].set(o[k]);
+  S.wqOn = o.wqOn; S.reef = { bleach: o.reef.bleach, dead: o.reef.dead }; S.mpa = o.mpa ? { ...o.mpa } : null;
+  S.ghosts = o.ghosts.map(g => ({ ...g, held: g.held.map(h => ({ ...h })) }));
+  S.trawlers = []; S.effects = []; S.events = []; S.hist = []; S.hacc = 0; S.peak = zeros(); S.flags = { stockHint: false }; S.game = { on: false };
+  countAll();
+}
+// the ocean is left alone: nothing fishes, nothing is dumped, head office stays home, the water is back at the run's start warmth
+function startHeal(seed) {
+  seedWorld(seed);
+  S.game = { on: false }; S.trawlers = []; S.mpa = null; S.temp = RUN.TEMP_START;
+  S.effects = []; S.events = []; S.flags = { stockHint: true }; // (no "stock them back" tip: nobody can)
+}
+// the next season opens on this ocean: its clock back at 0 (morning, minute 1), times kept relative, a fresh log. Call
+// startRun() after it. "The water is calm." whatever the water looks like: that is the point.
+function beginSeason(seed) {
+  seedWorld(seed);
+  const T = S.t;
+  S.t = 0; S.night = nightAt(0);
+  for (let i = 0; i < N; i++) S.harm[i] -= T;
+  for (const a of S.agents) if (a.mealAt !== undefined) a.mealAt -= T;
+  S.trawlers = []; S.newborns = []; S.effects = []; S.events = []; S.hist = []; S.hacc = 0; S.peak = zeros();
+  S.flags = { stockHint: false }; S.mpa = null; S.game = { on: false };
+  countAll();
+  log('The water is calm.', 'good');
+}
+// what the comparison and the final screen say about an ocean
+function oceanSummary() {
+  return { counts: S.counts.slice(), present: NATIVE.filter(s => S.counts[s.i] > 0).length, bio: biodiversity(), water: waterQuality() };
+}
 // ==SIM-END==

@@ -36,7 +36,7 @@ const HINTS_RUN = {
   reserve: 'Drag across the water to close a strip to all fishing. It costs nothing but the fish inside it; what grows up there spills over.',
 };
 
-let mode = null; // null (menu, ambient sandbox behind it) | 'learn' | 'sandbox' | 'run' ('learn' is the sandbox with coach.js steps)
+let mode = null; // null (menu, ambient sandbox behind it) | 'learn' | 'sandbox' | 'run' ('learn' is the sandbox with coach.js steps; a Generations season is 'run' with campaign.js CAMP set)
 const menuEl = document.getElementById('menu'), endEl = document.getElementById('end'), hudEl = document.getElementById('hud');
 const tempEl = document.getElementById('temp');
 const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
@@ -44,18 +44,21 @@ const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padS
 // M9: ?seed=... replays one ocean (every game on the page uses it); otherwise each game gets a fresh seed. Kept to a-z, 0-9
 // and '-' (at most 24 characters) because the seed is printed on the end screen.
 const URL_SEED = (new URLSearchParams(location.search).get('seed') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
-function newGame(m) {
+// camp (campaign.js): a Generations season (or, saved mid-heal, its heal): the seed and the ocean come from the campaign
+function newGame(m, camp) {
+  if (!camp) campLeave(); // any other game leaves the campaign (it stays saved)
   mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
   resetScene();
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
   document.getElementById('speed').textContent = '1×';
-  const seed = URL_SEED || freshSeed();
+  const seed = camp ? camp.rec.seed + '.s' + camp.rec.season : URL_SEED || freshSeed();
   // refit the scale to this mode's panels (render.js measureChrome), with the More drawer folded
   fitKey = ''; foldMore();
   tlReset(); resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null; endFollow(true);
+  if (camp) campSetup(seed);
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
-  const run = m === 'run';
-  if (run) startRun(); else S.temp = 0.5;
+  const run = m === 'run', healing = !!camp && camp.rec.phase === 'heal';
+  if (run && !healing) startRun(); else if (!healing) S.temp = 0.5;
   tempEl.value = Math.round(S.temp * 100); tempEl.disabled = run;
   tempEl.parentElement.title = run ? 'The water warms on its own in this run' : '';
   document.querySelector('[data-tool=stock]').disabled = run; stockSel.disabled = run;
@@ -63,12 +66,13 @@ function newGame(m) {
   document.querySelector('[data-tool=pollute]').textContent = run ? 'Dump' : 'Pollute';
   pollSel.options[0].textContent = run ? 'waste' : 'plastic'; pollSel.options[1].textContent = run ? 'farm runoff' : 'runoff';
   document.querySelector('[data-tool=invader]').innerHTML = run ? 'Skip ballast' : '<span class="lg">Release invader</span><span class="sh">Invader</span>';
-  document.getElementById('tagline').textContent = run ? 'Anthropocene run' : m === 'learn' ? 'Learn to play' : 'A small ocean that runs without you.';
+  document.getElementById('tagline').textContent = camp ? campLabel() : run ? 'Anthropocene run' : m === 'learn' ? 'Learn to play' : 'A small ocean that runs without you.';
   document.getElementById('hudDur').textContent = '/ ' + fmtClock(RUN.DUR);
   HAULED.length = 0; ptr.mpa = null; ptr.ghost = null; hintSeen.clear();
-  hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true;
+  hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true; endEl.classList.remove('light');
   setTool('watch');
   coachReset(m);
+  campAfterSetup();
 }
 
 function updateHud() {
@@ -96,7 +100,9 @@ function updateHud() {
 function showEnd() {
   endFollow(true);
   const r = S.game.result;
-  if (!r || !endEl.hidden) return;
+  if (!r || !endEl.hidden || (CAMP && CAMP.between)) return;
+  if (CAMP) campSeasonEnd(r); // saves the season and starts the heal; the card is the run's, with the campaign's parts (campaign.js)
+  const C = CAMP ? campCardParts() : null;
   const pct = v => Math.round(v * 100) + '%', list = a => a.length ? a.join(', ') : 'none';
   logEl.innerHTML = ''; // the run's messages would pile up behind the card
   // species gone at the end, shown as faded silhouettes
@@ -110,7 +116,7 @@ function showEnd() {
   const lost = r.lost.length ? r.lost.map(ghost).join(' ') : 'none';
   const st = RUN.STEWARD;
   document.getElementById('endCard').innerHTML = `
-    <h2>${fmtClock(RUN.DUR)}. The season is over.</h2>
+    <h2>${C ? C.title : fmtClock(RUN.DUR) + '. The season is over.'}</h2>
     <p class="verdict">${r.verdict}</p>
     <div class="tl" id="tl" hidden><canvas id="tlc" width="${TL.W}" height="${TL.H + TL.STRIP}" aria-label="Timelapse of the season, with the animal counts under it"></canvas>
       <div class="tlbar"><button id="tlPlay" type="button">Replay</button><b id="tlClock">0:00</b><span>The whole season, sped up. Lines: animals, each scaled to its own peak.</span></div></div>
@@ -130,14 +136,16 @@ function showEnd() {
     <h3>How the score adds up</h3>
     <table>${r.parts.filter(p => p.pts || p.label.startsWith('Quota') || p.label.startsWith('Bio') || p.label.startsWith('Water'))
       .map(p => `<tr><td>${p.label}</td><td class="${p.pts < 0 ? 'neg' : ''}">${p.pts > 0 ? '+' : ''}${p.pts}</td></tr>`).join('')}</table>
-    <p><b style="color:var(--text)">What would the steward have done?</b> Left the nets dry, and head office sent its own trawler twice before the fleet went bankrupt. That typically ends around
-      <b style="color:var(--text)">${st.score}</b> points: biodiversity ${pct(st.bio)}, no quota delivered.</p>
-    <p class="seedline">This was ocean <b>${SEED}</b>. <a href="?seed=${SEED}">Play this ocean again</a>, or send the link to someone: the same seed starts the same ocean.</p>
-    <div class="actions"><button id="again" class="on">Play again</button><button id="toSandbox">Sandbox</button></div>`;
+    ${!C || C.steward ? `<p><b style="color:var(--text)">What would the steward have done?</b> Left the nets dry, and head office sent its own trawler twice before the fleet went bankrupt. That typically ends around
+      <b style="color:var(--text)">${st.score}</b> points: biodiversity ${pct(st.bio)}, no quota delivered.</p>` : ''}
+    ${C ? C.middle : ''}
+    <p class="seedline">${C ? C.seedline : `This was ocean <b>${SEED}</b>. <a href="?seed=${SEED}">Play this ocean again</a>, or send the link to someone: the same seed starts the same ocean.`}</p>
+    <div class="actions">${C ? C.actions : '<button id="again" class="on">Play again</button><button id="toSandbox">Sandbox</button>'}</div>`;
   endEl.hidden = false;
   const tlOn = TL.frames.length > 1 && !!document.getElementById('tlc').getContext('2d');
   document.getElementById('tl').hidden = !tlOn;
   if (tlOn) tlMount(document.getElementById('tlc'), document.getElementById('tlPlay'), document.getElementById('tlClock'), !matchMedia('(prefers-reduced-motion: reduce)').matches);
+  if (C) { C.wire(); return; }
   document.getElementById('again').onclick = () => newGame('run');
   document.getElementById('toSandbox').onclick = () => newGame('sandbox');
 }
@@ -232,20 +240,20 @@ document.getElementById('stockSel').addEventListener('change', () => { setTool('
 pollSel.addEventListener('change', () => { setPollKind(pollSel.value); pollSel.blur(); });
 document.getElementById('exclBtn').addEventListener('click', () => { setExcluder(!EXCLUDER.on); if (EXCLUDER.on && tool !== 'trawl') setTool('trawl'); });
 tempEl.addEventListener('input', e => { if (mode !== 'run') S.temp = e.target.value / 100; });
-document.getElementById('pause').addEventListener('click', e => { if (S.game.over) return; paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
+document.getElementById('pause').addEventListener('click', e => { if (S.game.over || campBetween()) return; paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause'; e.target.classList.toggle('on', paused); });
 document.getElementById('speed').addEventListener('click', e => { speedMul = speedMul === 1 ? 2 : speedMul === 2 ? 4 : speedMul === 4 ? 0.5 : 1; e.target.textContent = speedMul + '×'; });
-document.getElementById('reset').addEventListener('click', () => newGame(mode || 'sandbox')); // in the run: start the run over
+document.getElementById('reset').addEventListener('click', () => { if (campBetween()) return; if (CAMP) newGame('run', CAMP); else newGame(mode || 'sandbox'); }); // in the run: start the run over (a Generations season: that season, from its start)
 let pausedBeforeMenu = false;
 document.getElementById('menuBtn').addEventListener('click', () => {
   if (!menuEl.hidden) return;
   pausedBeforeMenu = paused; paused = true; ptr.down = false; // the run holds still while the menu is up
-  endEl.hidden = true; menuEl.hidden = false; document.getElementById('menuBack').hidden = !mode;
+  endEl.hidden = true; menuEl.hidden = false; document.getElementById('menuBack').hidden = !mode; campMenu();
 });
 document.querySelector('#menuBack button').addEventListener('click', () => {
   menuEl.hidden = true;
-  if (S.game.over) endEl.hidden = false; else paused = pausedBeforeMenu;
+  if (S.game.over || campBetween()) endEl.hidden = false; else paused = pausedBeforeMenu;
 });
-document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => newGame(b.dataset.mode)));
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => b.dataset.mode === 'gen' ? campMenuPick() : newGame(b.dataset.mode)));
 document.getElementById('hintsBtn').addEventListener('click', () => setHints(!hintsOn));
 // M9 photo mode: the ocean holds still, the panels step aside, a drag or the wheel frames the view, and Save picture writes
 // it as a PNG (render.js renderPhoto: the world as framed, at 2 px per world unit). F, Esc or Done leaves, and the game goes

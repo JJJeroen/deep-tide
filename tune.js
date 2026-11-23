@@ -5,12 +5,15 @@
 //              warmth 0.5, runoffhot 0.66)
 //              trawlmpa | bottommpa (the same harm, with a protected area over the reef third from t = 0: what does it save?)
 //              anthro (scored run, played by bots: see BOT_LIB below; bot=name|all)
+//              campaign (M9 part 5 "Generations": GEN.SEASONS runs on one ocean with a GEN.HEAL heal between them, each bot
+//              playing every season; bot=name,name|all, seasons=n, heal=seconds; run i is campaign seed S-i, season k S-i.s<k>)
 //   rescue=on|off overrides RESCUE_ENABLED from sim.js for this run (default: whatever sim.js says).
 //   seed=S  M9: run 0 uses seed S, run i uses S-i (so any single run can be rerun exactly: seed=S-i with 1 run). In anthro every
 //           bot plays the same seeds, so bots are compared on the same oceans, and each bot's lowest and highest run is printed
 //           with its seed. Default: a fresh batch seed, printed in the header. Seeds are cleaned like the page's ?seed= (a-z 0-9 -),
 //           so a run seed opens in the page as ?seed=S-i, and the seed on the page's end screen works here:
-//           `anthro bot=steward seed=<that>` is exactly the run a player who touched nothing would have had (same engine, V8).
+//           `anthro bot=steward seed=<that>` is the run a player who touched nothing would have had: the same ocean, but bit for bit
+//           only in the same V8 version (measured 2026-11-23: node 22 and Chromium 156 drift apart after ~40 s, even untouched).
 //   env TUNE_PATCH='SPECIES[IDX.shark].meta = 0.5'  JS evaluated in the sim context before reset, for parameter sweeps.
 //   env TUNE_JOBS=n  parallel worker threads (default: number of CPUs, max runs).
 // Reports per native species: % of time at zero, mean count, births, and rescue/recolonization arrivals,
@@ -215,8 +218,36 @@ function runAnthro(bot, rescue, patch, seed) {
   return { ...vm.runInContext('S.game.result', ctx), seed };
 }
 
+// M9 part 5: one whole campaign with one bot, exactly as the page plays it (sim.js startHeal / beginSeason; the page also
+// saves and loads the ocean at each boundary, which tools/smoke.js proves changes nothing). Per season: the run's result,
+// and the ocean at the season's start and end (oceanSummary, plus the reef and the scarred floor).
+function runCampaign(bot, rescue, patch, seed, seasons, heal) {
+  const z = () => new Array(32).fill(0);
+  const ctx = vm.createContext({ Math, console, T: { births: z(), arrivals: z(), starved: z(), old: z(), eaten: Array.from({ length: 32 }, z) } });
+  vm.runInContext(loadSim(), ctx);
+  vm.runInContext(BOT_LIB, ctx);
+  if (rescue !== undefined) vm.runInContext(`RESCUE_ENABLED = ${rescue};`, ctx);
+  if (heal !== undefined) vm.runInContext(`GEN.HEAL = ${+heal};`, ctx);
+  if (patch) vm.runInContext(patch, ctx);
+  const STEP = new vm.Script(`BOTS.${bot}(); step(1/30);`), HEAL = new vm.Script('for (let i = 0, n = healSteps(); i < n; i++) step(1/30);');
+  const look = () => JSON.parse(vm.runInContext('JSON.stringify({ ...oceanSummary(), reefDead: S.reef.dead, scar: S.scarMean || 0 })', ctx));
+  const out = [];
+  for (let k = 1; k <= seasons; k++) {
+    const s = JSON.stringify(seed + '.s' + k);
+    vm.runInContext(k === 1 ? `resetWorld(${s});` : `beginSeason(${s});`, ctx);
+    vm.runInContext(`EXCLUDER.on = false; BOT.last = {}; BOT.rand = makeRng(SEED + '/bot'); startRun();`, ctx);
+    const start = look();
+    for (let n = 0; !vm.runInContext('S.game.over', ctx) && n < 30 * 3600; n++) STEP.runInContext(ctx);
+    const r = vm.runInContext('S.game.result', ctx), end = look();
+    let healed = null;
+    if (k < seasons) { vm.runInContext(`startHeal(${JSON.stringify(seed + '.h' + k)});`, ctx); HEAL.runInContext(ctx); healed = look(); }
+    out.push({ score: r.score, quota: r.quota, bio: r.bio, water: r.water, lost: r.lost, bycatch: r.bycatch, start, end, healed });
+  }
+  return { seed, seasons: out };
+}
+
 if (!isMainThread) {
-  parentPort.postMessage(workerData[0] === 'anthro' ? runAnthro(...workerData.slice(1)) : run(...workerData));
+  parentPort.postMessage(workerData[0] === 'anthro' ? runAnthro(...workerData.slice(1)) : workerData[0] === 'campaign' ? runCampaign(...workerData.slice(1)) : run(...workerData));
 } else {
   const pos = process.argv.slice(2).filter(a => !a.includes('='));
   const kv = Object.fromEntries(process.argv.slice(2).filter(a => a.includes('=')).map(a => a.split('=')));
@@ -226,6 +257,21 @@ if (!isMainThread) {
   const jobs = Math.min(runs, +process.env.TUNE_JOBS || os.cpus().length);
   const batchSeed = (kv.seed || '').toLowerCase().replace(/[^a-z0-9-]/g, '') || Math.floor(Math.random() * 36 ** 6).toString(36).padStart(6, '0');
   const seedOf = i => i === 0 ? batchSeed : batchSeed + '-' + i;
+  if (scenario === 'campaign') {
+    const bots = !kv.bot || kv.bot === 'all' ? ANTHRO_BOTS : kv.bot.split(',');
+    if (bots.some(b => !ANTHRO_BOTS.includes(b))) { console.error('unknown bot ' + kv.bot); process.exit(1); }
+    const seasons = +kv.seasons || 5, heal = kv.heal;
+    const queue = bots.flatMap(b => Array.from({ length: runs }, (_, i) => [b, i])), out = {};
+    let qi = 0;
+    const one = ([b, i]) => new Promise((res, rej) => {
+      const w = new Worker(__filename, { workerData: ['campaign', b, rescue, patch, seedOf(i), seasons, heal] });
+      w.once('message', m => { (out[b] = out[b] || []).push(m); res(); }); w.once('error', rej);
+    });
+    const lane = async () => { while (qi < queue.length) await one(queue[qi++]); };
+    Promise.all(Array.from({ length: Math.min(queue.length, +process.env.TUNE_JOBS || os.cpus().length) }, lane))
+      .then(() => reportCampaign(out, bots, runs, seasons, heal, patch, batchSeed));
+    return;
+  }
   if (scenario === 'anthro') {
     const bots = !kv.bot || kv.bot === 'all' ? ANTHRO_BOTS : kv.bot.split(',');
     if (bots.some(b => !ANTHRO_BOTS.includes(b))) { console.error('unknown bot ' + kv.bot); process.exit(1); }
@@ -313,5 +359,33 @@ function reportAnthro(out, bots, runs, patch, seed) {
     console.log(' '.repeat(11) + 'verdicts: ' + Object.entries(vs).sort((a, c) => c[1] - a[1]).map(([k, c]) => `"${k}" ${c}`).join(' · '));
     const lo = R.reduce((a, x) => x.score < a.score ? x : a), hi = R.reduce((a, x) => x.score > a.score ? x : a);
     console.log(' '.repeat(11) + `lowest ${lo.score} (seed=${lo.seed}) · highest ${hi.score} (seed=${hi.seed})`);
+  }
+}
+
+// per bot and season: mean score, and the ocean the season was handed (start) and handed on (end), then after the heal.
+// "present" = native species alive (of 7); counts are means; a campaign's score is the mean of its season scores.
+function reportCampaign(out, bots, runs, seasons, heal, patch, seed) {
+  console.log(`scenario=campaign x ${runs} campaigns per bot  seasons=${seasons}  heal=${heal || 'GEN.HEAL'}  seed=${seed}${patch ? '  patch: ' + patch : ''}`);
+  const SP = ['plankton', 'grazer', 'hunter', 'jelly', 'invader', 'turtle', 'shark', 'manta'], show = [1, 2, 3, 5, 6, 7];
+  const f1 = v => v.toFixed(1), pc = v => (v * 100).toFixed(0);
+  for (const b of bots) {
+    const R = out[b], avg = (f, rs = R) => rs.reduce((a, x) => a + f(x), 0) / rs.length;
+    const camp = R.map(x => x.seasons.reduce((a, s) => a + s.score, 0) / x.seasons.length), cm = avg((x, i) => camp[R.indexOf(x)]);
+    const csd = Math.sqrt(camp.reduce((a, v) => a + (v - cm) ** 2, 0) / camp.length);
+    console.log(`\n${b}: campaign score ${f1(cm)} (sd ${f1(csd)}, min ${Math.min(...camp).toFixed(0)}, max ${Math.max(...camp).toFixed(0)})`);
+    console.log('  season  score (sd) | start: present bio% water% ' + show.map(i => SP[i].slice(0, 6).padStart(7)).join('') + ' | end: present bio% water% lost | healed: present bio% reefDead scar');
+    for (let k = 0; k < seasons; k++) {
+      const S = R.map(x => x.seasons[k]), m = avg(s => s.score, S), sd = Math.sqrt(avg(s => (s.score - m) ** 2, S));
+      const H = S.filter(s => s.healed);
+      console.log(`  ${String(k + 1).padStart(6)} ${f1(m).padStart(6)} ${('(' + f1(sd) + ')').padStart(6)} |` +
+        ` ${f1(avg(s => s.start.present, S)).padStart(14)} ${pc(avg(s => s.start.bio, S)).padStart(4)} ${pc(avg(s => s.start.water, S)).padStart(6)} ${show.map(i => f1(avg(s => s.start.counts[i], S)).padStart(7)).join('')} |` +
+        ` ${f1(avg(s => s.end.present, S)).padStart(12)} ${pc(avg(s => s.end.bio, S)).padStart(4)} ${pc(avg(s => s.end.water, S)).padStart(6)} ${f1(avg(s => s.lost.length, S)).padStart(4)} |` +
+        (H.length ? ` ${f1(avg(s => s.healed.present, H)).padStart(15)} ${pc(avg(s => s.healed.bio, H)).padStart(4)} ${avg(s => s.healed.reefDead, H).toFixed(2).padStart(8)} ${avg(s => s.healed.scar, H).toFixed(2).padStart(4)}` : ''));
+    }
+    // how often each species is missing when a season starts (the ocean the next generation is handed)
+    const miss = SP.map((_, i) => R.reduce((a, x) => a + x.seasons.filter((s, k) => k > 0 && s.start.counts[i] === 0).length, 0));
+    console.log('  missing at a season start (seasons 2+, of ' + runs * (seasons - 1) + '): ' + show.concat([0]).map(i => SP[i] + ' ' + miss[i]).join(', '));
+    const lo = R.reduce((a, x, i) => camp[i] < camp[R.indexOf(a)] ? x : a, R[0]);
+    console.log(`  lowest campaign: seed=${lo.seed}`);
   }
 }
