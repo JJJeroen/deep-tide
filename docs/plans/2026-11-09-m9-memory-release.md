@@ -88,6 +88,23 @@ Questions for the owner:
   two pictures (the season 1 start and this season's end, taken with the part 4 recorder).
 - f. Saved in this browser only (no accounts), with an "abandon the campaign" button. OK?
 
+Owner's answers (2026-11-23):
+- a. At most 5 seasons, then a final screen. The player can stop earlier with the abandon button.
+- b. Between seasons the ocean gets untouched time to heal: start with 10 sim minutes fast-forwarded (no player tools, no
+  demand, no head-office trawler), then tune by measurement. Show the player that time passed.
+- c. A new menu mode, "Generations" (the owner left the choice to me). The Anthropocene run stays exactly as it is: same
+  seeds, same score, RUN.STEWARD baseline, existing tests. Season 1 of Generations plays like an Anthropocene run.
+- d. Demand and warming RESET each season: the same demand ramp (Q_BASE/Q_STEP) and the same TEMP_START -> TEMP_END every
+  season; only the ocean state carries over. Why (owner agreed): carrying them over makes later seasons unwinnable whatever
+  the player does (warming would push the plankton heat factor to its 0.05 floor by season 3; demand would start season 2
+  above today's peak), which teaches "nothing you do matters".
+- e. Both: each season is scored with the existing run score; the campaign score is the average of the season scores played
+  (no extra legacy points). The final screen says in words how the last ocean compares with the first (species present,
+  biodiversity, water quality). Comparison screen: species counts first ocean vs now, plus two pictures (season 1 start
+  and this season's end) taken with the part 4 recorder.
+- f. Saved in this browser only (localStorage, no accounts), with an "abandon the campaign" button.
+- Each season's start message still says "The water is calm." (that is the point of shifting baselines).
+
 ## 6. Installable (built 2026-11-21)
 manifest.webmanifest (name, short name, icons 192/512 + maskable, drawn from the favicon; theme and background colours;
 display standalone; orientation any, since phone portrait already works) and a small service worker so it plays offline.
