@@ -65,7 +65,7 @@ function loadSim() {
     ['S.newborns.push(k);', 'S.newborns.push(k); T.births[a.t]++;'],
     ['function arrive(i, n) {', 'function arrive(i, n) { T.arrivals[i] += n;'],
     ['function eat(pred, prey, gain) {', 'function eat(pred, prey, gain) { T.eaten[pred.t][prey.t]++;'],
-    ['if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; S.detritus', 'if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; if (a.e <= 0) T.starved[a.t]++; else T.old[a.t]++; S.detritus'],
+    ['if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; a.fate', 'if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; if (a.e <= 0) T.starved[a.t]++; else T.old[a.t]++; a.fate'],
   ];
   let patched = sim;
   for (const [from, to] of hooks) {

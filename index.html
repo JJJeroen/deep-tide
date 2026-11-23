@@ -180,6 +180,20 @@
     #stats.deepview:not(.open) #deep { display: block; margin: 0; padding: 0; border: 0; }
   }
   /* photo mode (ui.js enterPhoto): the panels hide but keep their size, so the fit and the camera's reach stay as they were */
+  /* follow one animal: a card over the water, just above the toolbar */
+  #follow { left: 50%; bottom: 80px; transform: translateX(-50%); width: min(340px, calc(100vw - 24px)); z-index: 4; font-size: 12px; line-height: 1.45; }
+  #follow[hidden] { display: none; }
+  #follow .fh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding-right: 26px; }
+  #follow .dot { width: 9px; height: 9px; border-radius: 50%; align-self: center; }
+  #follow .fn { font-size: 13px; }
+  #follow .fs, #follow .fm { color: var(--dim); }
+  #follow .fe { height: 4px; margin: 6px 0; border-radius: 2px; background: rgba(140, 210, 230, .16); overflow: hidden; }
+  #follow .fe i { display: block; height: 100%; border-radius: 2px; }
+  #follow .fr { color: #e8cf8c; }
+  #follow .fd { color: var(--danger); font-weight: 600; margin-top: 2px; }
+  #follow .fr[hidden], #follow .fd[hidden] { display: none; }
+  #followStop { position: absolute; top: 4px; right: 4px; width: 30px; height: 30px; padding: 0; font-size: 18px; line-height: 1; }
+  body.following #depthBtn { display: none; }
   body.photo .panel { visibility: hidden; }
   body.photo canvas#view { cursor: grab; }
   #photoBar { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; align-items: center;
@@ -234,6 +248,11 @@
   <button id="menuBtn" class="opt">Menu</button>
   <button id="moreBtn" aria-expanded="false" title="Warmth, hints, sound, pause, reset and the menu">More</button>
 </div>
+
+<div class="panel" id="follow" hidden><button id="followStop" aria-label="Stop following" title="Stop following (Esc)">&times;</button>
+  <div class="fh"><span class="dot"></span><b class="fn"></b><span class="fs"></span></div>
+  <div class="fe" aria-hidden="true"><i></i></div>
+  <div class="fm"></div><div class="fr"></div><div class="fd"></div></div>
 
 <div id="photoBar" hidden><span id="photoTip"></span><button id="photoSave" class="on">Save picture</button><button id="photoDone">Done</button></div>
 

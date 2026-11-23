@@ -2,7 +2,7 @@
 // Render only: reads D (deep.js) and S, never writes them. Most of the deep is dark: animals show by their own light or in
 // the Watch lamp (a small ROV that only comes down here, where it is needed).
 
-const deepVisible = () => cam.y + innerHeight / scale > DEEP_TOP - 40;
+const deepVisible = () => (innerHeight - oy) / scale > DEEP_TOP - 40; // the view as drawn (zoomed while following an animal)
 
 // ---- water, the continental slope behind, the floor with a vent
 const SLOPE = (() => { const r = seeded(31), pts = []; for (let y = DEEP_TOP - 130; y <= FLOOR_Y + 40; y += 30) pts.push([520 - (y - DEEP_TOP) * 0.22 + (r() - 0.5) * 40, y]); return pts; })();

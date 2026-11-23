@@ -60,6 +60,8 @@ Render: today the world is fitted to the screen with ox/oy/scale and the camera 
 zoom factor and an x centre too; everything that converts screen to world (toWorld, picking, the net and trawl cursor) must go
 through the same transform. That is most of the work. Phone first: there a grazer is about 5 px tall, so zoom is the point.
 
+As built (2026-11-23): see docs/summaries/SESSION-2026-11-23-follow-animal.md. Zoom is a blend of the fitted view and a view centred on the animal (render.js stepFollow); sim fields a.id, a.mealT/mealAt, a.fate; sunlit animals only.
+
 ## 4. Timelapse on the end screen (render)
 "Replay the ten minutes in ten seconds." Measured 9 Nov: one run is 18,000 steps and takes about 11 s in node with a bot, so
 re-simulating a run from its seed and recorded actions would take about as long as the timelapse itself on a desktop, and much

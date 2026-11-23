@@ -244,17 +244,21 @@ let SEED = '', rand = makeRng(SEED);
 function seedWorld(seed) { SEED = String(seed); rand = makeRng(SEED); }
 const rnd = (a, b) => a + rand() * (b - a);
 
+// M9 follow: a.id numbers every agent; a.mealT / a.mealAt = what a predator last ate and when (S.t); a.fate = how it died
+// (FATE.*, or the predator's species index when eaten). Fields only: nothing in the sim reads them, nothing draws random numbers.
+let AGENT_ID = 0;
+const FATE = { NET: -1, TRAWL: -2, GHOST: -3, STARVED: -4, OLD: -5, HEAD_OFFICE: -6, SUFFOCATED: -7, POISONED: -8 };
 function makeAgent(t, x, y) {
   const s = SPECIES[t];
   return {
-    t, x, y, vx: 0, vy: 0, ang: rand() * 6.283, dead: false, age: 0, cool: rnd(0, 6), phase: rand() * 6.283,
+    id: ++AGENT_ID, t, x, y, vx: 0, vy: 0, ang: rand() * 6.283, dead: false, age: 0, cool: rnd(0, 6), phase: rand() * 6.283,
     e: s.plant ? 0 : (s.max * rnd(0.45, 0.7)),
     maxAge: s.plant ? rnd(40, 90) : rnd(s.life[0], s.life[1]),
   };
 }
 
 function resetWorld(seed = freshSeed()) {
-  seedWorld(seed);
+  seedWorld(seed); AGENT_ID = 0;
   S.t = 0; S.agents = []; S.newborns = []; S.poll.fill(0); S.avgPoll = 0; S.trawlers = []; S.hist = []; S.hacc = 0; S.events = [];
   S.flags = { stockHint: false }; S.peak = zeros(); S.effects = []; S.plankAcc = 0; S.heal = zeros(); S.rescue = zeros(); S.harm = zeros().map(() => -1e9); S.zero = zeros(); S.harmed = zeros();
   S.game = { on: false };
@@ -334,7 +338,7 @@ function updPlankton(a, dt) {
 }
 
 function eat(pred, prey, gain) {
-  prey.dead = true;
+  prey.dead = true; pred.mealT = prey.t; pred.mealAt = S.t; if (prey.t !== PLANKTON) prey.fate = pred.t;
   if (prey.bloom) S.rot[pollIdx(prey.x, prey.y)] += ROT.add * ROT.eaten; // an eaten bloom still sinks as waste and rots
   if (prey.t !== PLANKTON) S.detritus += massOf(SPECIES[prey.t]) * 0.4; // scraps and waste from a meal sink too
   pred.e = Math.min(SPECIES[pred.t].max, pred.e + gain);
@@ -350,7 +354,7 @@ function updMobile(a, dt) {
   // low oxygen: lose energy (a share of max per second, worse the lower it is) and head for better water
   let hyp = 0;
   if (S.wqOn && s.hypoxia !== false) { const ox = oxyAt(a.x, a.y); if (ox < OXY.low) { hyp = (OXY.low - ox) / OXY.low; a.e -= OXY.cost * s.max * hyp * dt; } }
-  if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; S.detritus += massOf(s); return; } // the carcass sinks
+  if (a.e <= 0 || a.age > a.maxAge) { a.dead = true; a.fate = a.e > 0 ? FATE.OLD : hyp > 0 ? FATE.SUFFOCATED : pollAt(a.x, a.y) * s.pol > s.meta * 0.5 ? FATE.POISONED : FATE.STARVED; S.detritus += massOf(s); return; } // the carcass sinks
 
   let dx = 0, dy = 0, mul = 0.5, wander = true;
   const thr = s.flee ? nearest(a.x, a.y, s.flee.radius, s.flee.mask, a) : null;
@@ -651,7 +655,7 @@ function netAt(x, y, r) {
   let n = 0;
   for (const a of S.agents) {
     if (a.dead || a.t === PLANKTON || inMpa(a.x)) continue;
-    if (Math.hypot(a.x - x, a.y - y) < r) { a.dead = true; n++; harvest(a); }
+    if (Math.hypot(a.x - x, a.y - y) < r) { a.dead = true; a.fate = FATE.NET; n++; harvest(a); }
   }
   return n;
 }
@@ -710,7 +714,7 @@ function stepTools(dt) {
         if (rand() < (RUN_PROTECTED[a.t] ? EXCLUDER.prot : EXCLUDER.leak)) { tr.spared.add(a); if (RUN_PROTECTED[a.t]) tr.escProt++; else tr.escOther++; continue; }
       }
       // bycatch: everything in the net dies, plankton too (at a lower rate)
-      if (a.t !== PLANKTON || rand() < 0.5) { a.dead = true; harvest(a, tr.company); }
+      if (a.t !== PLANKTON || rand() < 0.5) { a.dead = true; a.fate = tr.company ? FATE.HEAD_OFFICE : FATE.TRAWL; harvest(a, tr.company); }
     }
     // the net mouth dragging over the floor scars each column once per pass, harder the deeper it digs (lifted over a protected area)
     if (SCAR.on) for (let c = Math.max(0, (tr.x / GC) | 0); c <= Math.min(GCOLS - 1, (nx / GC) | 0); c++) {
@@ -749,7 +753,7 @@ function stepGhosts(dt) {
   S.ghosts = S.ghosts.filter(gn => gn.age < GHOST.life);
 }
 function entangle(gn, a) {
-  a.dead = true; S.harm[a.t] = S.t; S.detritus += massOf(SPECIES[a.t]);
+  a.dead = true; a.fate = FATE.GHOST; S.harm[a.t] = S.t; S.detritus += massOf(SPECIES[a.t]);
   gn.kills++; if (gn.held.length < 6) gn.held.push({ t: a.t, dx: a.x - gn.x, dy: a.y - gn.y, ang: a.ang });
   S.effects.push({ x: a.x, y: a.y, t: 0, kind: 1 });
   const g = S.game;

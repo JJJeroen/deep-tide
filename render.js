@@ -15,6 +15,8 @@ const drag = { on: false, sx: 0, sy: 0, cx: 0, cy: 0 }; // dragging with the Wat
 // fills the height instead and the camera pans sideways: panMode, cam.x is the world x at the left of the view, ox follows it.
 const cam = { x: 0, tx: 0, y: -SKY, target: -SKY };
 let panMode = false;
+const FOLLOW = { a: null, p: 0, fx: 0, fy: 0, deadFor: 0, lift: null, Z: 2, cardH: 0 }; // follow one animal (below)
+let baseScale = 1; // the fitted scale: `scale` is this, times the follow zoom (stepFollow)
 // Screen space the panels take: on a portrait phone the column starts below the species panel (as the sea did before),
 // and the camera always scrolls far enough that the abyssal floor clears the toolbar.
 // On a portrait phone the species panel is folded to a strip (index.html); opened, it lies over the water and the
@@ -61,6 +63,7 @@ function measureChrome() {
 const FRAME_Y = 820;
 let fitW0 = 0; // the window width the last fit used
 function fitScale(top, bar) {
+  scale = baseScale; // a zoomed view (follow) is not what is being fitted
   const fitW = innerWidth / WW, fitAll = Math.max(0.05, (innerHeight - top) / (SKY + WH));
   const fitH = Math.max(0.05, (innerHeight - top - bar) / (SKY + FRAME_Y)); // the reef shelf clear of the toolbar
   const was = panMode, mid = was ? cam.x + fitW0 / scale / 2 : 0;
@@ -75,7 +78,7 @@ function fitScale(top, bar) {
   fitW0 = innerWidth;
   // the Watch hint mentions dragging only in pan mode; it changes the toolbar's height, so fit once more
   if (was !== panMode && typeof setTool === 'function') { setTool(tool); fitKey = ''; }
-  ox = panMode ? -cam.x * scale : (innerWidth - WW * scale) / 2;
+  baseScale = scale; ox = panMode ? -cam.x * scale : (innerWidth - WW * scale) / 2;
   cam.y = clampCam(cam.y); cam.target = clampCam(cam.target); placeCam();
 }
 const camMax = () => Math.max(-SKY, DEEP_BOTTOM - (innerHeight - barH - 10 - topReserve) / scale);
@@ -86,6 +89,7 @@ function placeCam() { oy = topReserve - cam.y * scale; if (panMode) ox = -cam.x 
 // stereo position of a world x as the player sees it: left of the view -1, right +1
 const panAt = x => Math.max(-1, Math.min(1, (ox + x * scale) / innerWidth * 2 - 1));
 function resize() {
+  if (typeof endFollow === 'function') endFollow(true); // the fit below is of the whole view
   const dpr = window.devicePixelRatio || 1;
   view.width = innerWidth * dpr; view.height = innerHeight * dpr;
   // always refits on a new window size, with the More drawer folded (it holds the fit back while open)
@@ -321,9 +325,11 @@ function stepCatch(dt) {
   while (LIFTS.length && LIFTS[0].t > 1.4) LIFTS.shift();
   while (TAGS.length && TAGS[0].t > 1.3) TAGS.shift();
 }
+// where a hauled animal is (the camera of Follow rides up with it)
+function liftPos(l, t) { const p = Math.min(1, l.t / 1.2); return { x: l.x + Math.sin(t * 3 + l.ph) * 3 * (1 - p), y: l.y * (1 - p * p) }; }
 function drawLifts(t) {
   for (const l of LIFTS) {
-    const p = Math.min(1, l.t / 1.2), y = l.y * (1 - p * p), x = l.x + Math.sin(t * 3 + l.ph) * 3 * (1 - p);
+    const p = Math.min(1, l.t / 1.2), { x, y } = liftPos(l, t);
     ctx.strokeStyle = `rgba(230,240,245,${0.35 * (1 - p)})`; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, 0); ctx.stroke();
     const spr = SPRITES[l.sp];
@@ -533,7 +539,12 @@ function pickAnimal(x, y, r) {
   }
   return best;
 }
+function moodOf(a) {
+  const sp = SPECIES[a.t], e = a.e / sp.max, low = S.wqOn && oxyAt(a.x, a.y) < OXY.low;
+  return low && sp.hypoxia !== false ? 'gasping: no oxygen here' : (e < 0.3 ? 'starving' : e < 0.6 ? 'hungry' : 'well fed') + (low ? ', fine without oxygen' : '');
+}
 function drawInspect(now) {
+  if (FOLLOW.a) { inspect = null; return; } // the card of Follow says it all
   if (tool === 'watch' && ptr.inside && ptr.mouse && !drag.on && !ghostAt(ptr.x, ptr.y, 10)) { const a = pickAnimal(ptr.x, ptr.y, 36) || pickDeep(ptr.x, ptr.y, 36); inspect = a ? { a, until: now + 250 } : (inspect && now < inspect.until ? inspect : null); }
   if (!inspect) return;
   const a = inspect.a;
@@ -542,8 +553,7 @@ function drawInspect(now) {
   if (deepOne) { drawDeepInspect(a); return; }
   if (typeof coachSaw === 'function') coachSaw(a.t);
   const sp = SPECIES[a.t], sx = ox + a.x * scale, sy = oy + a.y * scale, r = Math.max(9, sp.size * RS * 1.7 * scale);
-  const e = a.e / sp.max, low = S.wqOn && oxyAt(a.x, a.y) < OXY.low;
-  const mood = low && sp.hypoxia !== false ? 'gasping: no oxygen here' : (e < 0.3 ? 'starving' : e < 0.6 ? 'hungry' : 'well fed') + (low ? ', fine without oxygen' : '');
+  const mood = moodOf(a);
   const line1 = SINGULAR[sp.id] || sp.name, line2 = mood + ' · ' + fmtClock(a.age) + ' old';
   const line3 = S.game.on ? (RUN_PROTECTED[a.t] ? 'protected: catching it costs points' : sp.invasive ? 'invasive · worth ' + RUN_VAL[a.t] : 'worth ' + (RUN_VAL[a.t] === 0.5 ? '½' : RUN_VAL[a.t])) : '';
   ctx.strokeStyle = 'rgba(234,247,255,.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 6.283); ctx.stroke();
@@ -605,6 +615,60 @@ function drawPanTrack(now) {
 }
 function rrect(x, y, w, h, r) { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); ctx.fill(); }
 
+// ---------- M9 follow one animal (Watch tool: tap an animal)
+// The camera eases in (zoom about 2x, more on a phone, where a grazer is a few pixels) and keeps the animal in the middle of
+// the free part of the screen. Render only: `scale`, `ox` and `oy` are the view as it is now, so toWorld, picking and
+// everything drawn in screen pixels keep working; baseScale / cam.* stay the unzoomed view and the camera eases back to
+// them when it ends. A tap on empty water, Esc, a tool, a drag, the wheel or the camera keys end it; if the animal dies the
+// card says how (sim.js a.fate) and the camera stays (a netted one is followed up to the boat) for a few seconds.
+const zoomed = () => FOLLOW.p > 0.02;
+function startFollow(a) {
+  const F = FOLLOW;
+  if (F.p < 0.05 || !F.a) { F.fx = a.x; F.fy = a.y; }
+  F.a = a; F.deadFor = 0; F.lift = null; F.Z = Math.max(2, Math.min(3, 1.5 / baseScale));
+  inspect = null; ptr.pick = null;
+  if (typeof coachSaw === 'function') coachSaw(a.t);
+  if (typeof updateFollowCard === 'function') updateFollowCard();
+}
+function endFollow(now) {
+  const F = FOLLOW;
+  F.a = null; F.lift = null;
+  if (now && F.p) { F.p = 0; scale = baseScale; ox = panMode ? -cam.x * scale : (innerWidth - WW * scale) / 2; placeCam(); }
+  if (typeof updateFollowCard === 'function') updateFollowCard();
+}
+function stepFollow(real) {
+  const F = FOLLOW, a = F.a;
+  scale = baseScale; ox = panMode ? -cam.x * scale : (innerWidth - WW * scale) / 2; oy = topReserve - cam.y * scale; // the unzoomed view
+  if (a) {
+    if (!a.dead && !S.agents.includes(a)) endFollow(); // gone without a death (a new game)
+    else {
+      let tx = a.x, ty = a.y;
+      if (a.dead) {
+        if (!paused) F.deadFor += real * speedMul; // not while paused (a photo of what just happened)
+        if (a.fate === FATE.NET && !F.lift) F.lift = LIFTS.find(l => l.sp === a.t && l.x === a.x && l.y === a.y) || null;
+        if (F.lift) { const q = liftPos(F.lift, S.t); tx = q.x; ty = q.y; }
+        if (F.deadFor > 4) endFollow();
+      }
+      const k = Math.min(1, real * 5); F.fx += (tx - F.fx) * k; F.fy += (ty - F.fy) * k;
+    }
+  }
+  const to = F.a ? 1 : 0;
+  F.p += (to - F.p) * Math.min(1, real * 4); if (Math.abs(to - F.p) < 0.004) F.p = to;
+  if (!F.p) return;
+  const q = F.p * F.p * (3 - 2 * F.p), s = baseScale * (1 + (F.Z - 1) * q);
+  const top = topReserve, bot = innerHeight - barH - F.cardH; // the free part of the screen: under the panels, over the card and toolbar
+  let fox = innerWidth / 2 - F.fx * s; fox = Math.max(innerWidth - WW * s, Math.min(0, fox));
+  let foy = (top + bot) / 2 - F.fy * s; foy = Math.max(bot - (WH + 80) * s, Math.min(top + SKY * s, foy)); // the sky above the surface may show, the seabed ends it
+  ox += (fox - ox) * q; oy += (foy - oy) * q; scale = s;
+}
+// a soft ring around the animal followed
+function drawFollowRing(t) {
+  const a = FOLLOW.a; if (!a || a.dead || !zoomed()) return;
+  const r = SPECIES[a.t].size * RS * 1.5 + 3 + Math.sin(t * 4) * 1.2;
+  ctx.strokeStyle = 'rgba(234,247,255,.55)'; ctx.lineWidth = 1.5 / scale; ctx.setLineDash([6 / scale, 7 / scale]);
+  ctx.beginPath(); ctx.arc(a.x, a.y, r, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+}
+
 let lastNow = 0, acc = 0;
 function frame(now) {
   const dt = 1 / 30;
@@ -613,7 +677,7 @@ function frame(now) {
   lastNow = now;
   const ease = Math.min(1, real * 8);
   cam.y += (cam.target - cam.y) * ease; cam.y = clampCam(cam.y);
-  cam.x += (cam.tx - cam.x) * ease; cam.x = clampCamX(cam.x); placeCam();
+  cam.x += (cam.tx - cam.x) * ease; cam.x = clampCamX(cam.x); placeCam(); stepFollow(real);
   if (ptr.cx !== undefined) { const p = toWorld({ clientX: ptr.cx, clientY: ptr.cy }); ptr.x = p.x; ptr.y = p.y; } // the world moved under a still pointer
   stepLamp(real);
   if (!paused) {
@@ -654,13 +718,15 @@ function drawFrame(now) {
   drawDeep(S.t);
   drawSnow(S.t); drawDeepSnow(S.t); drawSilt(); drawTrawlers(S.t);
   drawDark(sceneLights()); drawDeadZone(); drawDeepDark(S.t); drawGlows(S.t); drawDeepGlows(S.t); drawLamp(S.t);
+  if (!photo) drawFollowRing(S.t);
   drawEffects(); drawLifts(S.t);
   drawSky(S.t); drawTrawlerDecks(S.t); drawMpaBuoys(S.t);
   if (!photo) drawTags(); // after the sky: value tags can reach above the waterline
   if (!shooting) drawEdges(); // the fade into the dark beside the world; the picture is cut at the world's edges instead
-  if (!photo) { drawRuler(); drawCursor(); }
+  if (!photo && !zoomed()) drawRuler();
+  if (!photo) drawCursor();
   ctx.restore();
-  if (!photo) { drawPanTrack(now); drawInspect(now); }
+  if (!photo) { if (!zoomed()) drawPanTrack(now); drawInspect(now); }
 }
 
 // M9 photo: the world as the screen shows it now (no panels, labels or cursor: photo mode), drawn again at 2 px per world

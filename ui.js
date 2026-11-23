@@ -52,7 +52,7 @@ function newGame(m) {
   const seed = URL_SEED || freshSeed();
   // refit the scale to this mode's panels (render.js measureChrome), with the More drawer folded
   fitKey = ''; foldMore();
-  resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null;
+  resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null; endFollow(true);
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
   const run = m === 'run';
   if (run) startRun(); else S.temp = 0.5;
@@ -94,6 +94,7 @@ function updateHud() {
 }
 
 function showEnd() {
+  endFollow(true);
   const r = S.game.result;
   if (!r || !endEl.hidden) return;
   const pct = v => Math.round(v * 100) + '%', list = a => a.length ? a.join(', ') : 'none';
@@ -157,12 +158,12 @@ function updateUI() {
         .map(([c, nm, n]) => `<div class="row"><span class="dot" style="background:${c}"></span><span class="nm">${nm}</span><span class="n">${n}</span></div>`).join('')
         + (extra ? `<div class="also">${extra.slice(3)}</div>` : '')
       : `${dc.lantern} lanternfish · ${dc.angler} anglerfish · ${dc.squid} giant squid · ${dc.hagfish + dc.crab} scavengers` + extra;
-    measureChrome(); updateDepthBtn();
+    measureChrome(); updateDepthBtn(); updateFollowCard();
     drawSparks();
     coachTick();
     // the log sits just under the waterline (camera at the top), clear of the boats on the surface; narrow screens: also
     // under the title panel (whose height changes with the run HUD) instead of over it
-    const wl = Math.round(topReserve + SKY * scale + 8);
+    const wl = Math.round(topReserve + SKY * baseScale + 8);
     logEl.style.top = (innerWidth <= 760 && !topReserve ? Math.max(wl, Math.round(titleEl.getBoundingClientRect().bottom + 8)) : wl) + 'px';
   }
   while (logShown < S.events.length) {
@@ -210,7 +211,7 @@ function showHint(full) {
 hintEl.addEventListener('click', () => showHint(!hintEl.classList.contains('full')));
 function setTool(t) {
   if (t === 'stock' && mode === 'run') return; // locked in the scored run
-  tool = t;
+  tool = t; endFollow();
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   document.getElementById('bar').dataset.picked = t; // narrow screens show the picked tool's setting by its hint (not data-tool: the tools' own selectors would find the bar)
   const key = t === 'pollute' && POLL_KIND === 'runoff' ? 'runoff' : t;
@@ -308,7 +309,7 @@ view.addEventListener('pointerdown', e => {
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   }
   if (touches.size >= 2) {
-    const m = touchMid(); Object.assign(pan2, { on: true, sx: m.x, sy: m.y, cx: cam.x, cy: cam.y });
+    endFollow(true); const m = touchMid(); Object.assign(pan2, { on: true, sx: m.x, sy: m.y, cx: cam.x, cy: cam.y });
     ptr.down = false; ptr.ghost = null; ptr.mpa = null; ptr.tap = null; drag.on = false; inspect = null;
     return;
   }
@@ -328,12 +329,12 @@ view.addEventListener('pointerdown', e => {
     if (!S.flags.deepTools) { S.flags.deepTools = true; log('Your tools only reach the sunlit water. The deep is for watching.'); }
     return;
   }
-  ptr.ghost = null; ptr.mpa = null; ptr.tap = null; ptr.id = e.pointerId; ptr.t0 = performance.now(); ptr.touch = e.pointerType === 'touch'; ptr.stroked = false;
+  ptr.ghost = null; ptr.mpa = null; ptr.tap = null; ptr.pick = null; ptr.id = e.pointerId; ptr.t0 = performance.now(); ptr.touch = e.pointerType === 'touch'; ptr.stroked = false;
   if (tool === 'watch') {
     // a lost net under the pointer is hauled up on release (unless this turns into a scroll); otherwise pick an animal
     const gn = ghostAt(p.x, p.y, e.pointerType === 'mouse' ? 10 : 26);
     if (gn) { ptr.ghost = gn; inspect = null; }
-    else { const r = e.pointerType === 'mouse' ? 36 : 60, a = pickAnimal(p.x, p.y, r) || pickDeep(p.x, p.y, r); inspect = a ? { a, until: performance.now() + 4000 } : null; }
+    else { const r = e.pointerType === 'mouse' ? 36 : 60, sa = pickAnimal(p.x, p.y, r), a = sa || pickDeep(p.x, p.y, r); inspect = a ? { a, until: performance.now() + 4000 } : null; ptr.pick = sa; } // a tap on a sunlit animal follows it (on release, unless it turns into a drag)
   }
   else if (tool === 'reserve') ptr.mpa = { x0: p.x, x1: p.x };
   else if (tool === 'net' && inMpa(p.x) && !S.flags.mpaNet) { S.flags.mpaNet = true; log('Nothing can be taken inside the protected area.'); }
@@ -364,14 +365,14 @@ view.addEventListener('pointermove', e => {
   // dragging with Watch moves the view: down the column, and sideways in pan mode (a tap still picks an animal)
   const moved = panMode ? Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) : Math.abs(e.clientY - drag.sy); // a sideways slip only counts where the view pans
   if (ptr.down && (tool === 'watch' || photo) && (drag.on || moved > 8)) {
-    drag.on = true; inspect = null;
+    drag.on = true; inspect = null; endFollow(true);
     cam.target = cam.y = clampCam(drag.cy - (e.clientY - drag.sy) / scale);
     cam.tx = cam.x = clampCamX(drag.cx - (e.clientX - drag.sx) / scale);
   }
 });
 // the wheel scrolls the column; sideways (a trackpad, or Shift + wheel) it pans in pan mode
 view.addEventListener('wheel', e => {
-  e.preventDefault();
+  e.preventDefault(); endFollow(true);
   const k = e.deltaMode === 1 ? 40 : 1, side = e.shiftKey ? e.deltaY || e.deltaX : e.deltaX;
   if (panMode && Math.abs(side) > Math.abs(e.shiftKey ? 0 : e.deltaY)) cam.tx = clampCamX(cam.tx + side * k / scale);
   else cam.target = clampCam(cam.target + e.deltaY * k / scale);
@@ -379,12 +380,13 @@ view.addEventListener('wheel', e => {
 view.addEventListener('pointerup', e => {
   if (ptr.down && !drag.on && e.pointerId === ptr.id) { // only the finger that started it ends it
     if (ptr.ghost && S.ghosts.includes(ptr.ghost)) haulGhost(ptr.ghost);
+    else if (tool === 'watch' && !photo) { if (ptr.pick && !ptr.pick.dead) startFollow(ptr.pick); else if (FOLLOW.a) endFollow(); } // follow the animal tapped; a tap on empty water lets go
     if (ptr.mpa) placeMpa(ptr.mpa, (e.pointerType === 'mouse' ? 12 : 24) / scale); // slop in screen px
     if (ptr.tap) toolTap(ptr.tap);
     // a quick tap with the Net or paint, over before the touch delay let a stroke start (render.js frame): one stroke
     if (ptr.touch && !ptr.stroked && !paused && ptr.y <= WH) { if (tool === 'net') netAt(ptr.x, ptr.y, 50); else if (tool === 'pollute') dumpAt(ptr.x, ptr.y, 1 / 30); }
   }
-  ptr.ghost = null; ptr.mpa = null; ptr.tap = null;
+  ptr.ghost = null; ptr.mpa = null; ptr.tap = null; ptr.pick = null;
 });
 // pointerup comes first, so these only end the gesture
 for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) view.addEventListener(ev, e => { ptr.down = false; drag.on = false; ptr.ghost = null; ptr.mpa = null; ptr.tap = null; if (ev !== 'lostpointercapture') touches.delete(e.pointerId); });
@@ -414,6 +416,8 @@ addEventListener('keydown', e => {
   if (/^(SELECT|INPUT)$/.test(e.target.tagName) || (e.key === ' ' && e.target.tagName === 'BUTTON')) return;
   if (!menuEl.hidden || !endEl.hidden) return; // the mode picker / end screen is up
   if (e.key.toLowerCase() === 'f' || (photo && e.key === 'Escape')) { if (!e.repeat) { if (photo) leavePhoto(); else enterPhoto(); } return; }
+  if (e.key === 'Escape' && FOLLOW.a) { endFollow(); return; }
+  if ((PAN_KEYS[e.key] && panMode) || CAM_KEYS[e.key] !== undefined) endFollow(true); // moving the camera lets go
   if (photo && !PAN_KEYS[e.key] && CAM_KEYS[e.key] === undefined) return; // photo mode: only the camera keys, to frame it
   const k = { w: 'watch', n: 'net', t: 'trawl', p: 'pollute', i: 'invader', s: 'stock', a: 'reserve' }[e.key.toLowerCase()];
   if (k === 'pollute' && tool === 'pollute') { if (!e.repeat) setPollKind(POLL_KIND === 'plastic' ? 'runoff' : 'plastic'); } // P again switches the kind (not on key repeat)
@@ -424,11 +428,41 @@ addEventListener('keydown', e => {
   else if (PAN_KEYS[e.key] && panMode) { e.preventDefault(); cam.tx = clampCamX(cam.tx + PAN_KEYS[e.key] * innerWidth / scale); }
   else if (CAM_KEYS[e.key] !== undefined) { e.preventDefault(); cam.target = clampCam(CAM_KEYS[e.key] === 'top' ? -SKY : CAM_KEYS[e.key] === 'bottom' ? camMax() : cam.target + CAM_KEYS[e.key] * innerHeight / scale); }
 });
+// ---- follow card (render.js startFollow): who it is, how it is doing, what it last ate, and how it died
+const followEl = document.getElementById('follow');
+const AN = t => t === PLANKTON ? 'plankton' : (/^[aeiou]/i.test(SINGULAR[SPECIES[t].id] || SPECIES[t].name) ? 'an ' : 'a ') + (SINGULAR[SPECIES[t].id] || SPECIES[t].name).toLowerCase();
+const ago = d => d < 90 ? Math.max(0, Math.round(d)) + ' s ago' : Math.round(d / 60) + ' min ago';
+function fateText(a) {
+  const f = a.fate;
+  if (f === undefined) return 'Gone from the water.';
+  if (f >= 0) return 'Eaten by ' + AN(f) + '.';
+  return { [FATE.NET]: 'Caught in your net.', [FATE.TRAWL]: 'Taken by your trawler.', [FATE.HEAD_OFFICE]: 'Taken by head office\'s trawler.', [FATE.GHOST]: 'Tangled in a lost net and drowned.',
+    [FATE.STARVED]: 'Starved.', [FATE.SUFFOCATED]: 'Suffocated in water with no oxygen.', [FATE.POISONED]: 'Died of the polluted water.', [FATE.OLD]: 'Died of old age.' }[f] || 'Dead.';
+}
+function updateFollowCard() {
+  const a = FOLLOW.a;
+  followEl.hidden = !a; document.body.classList.toggle('following', !!a);
+  if (!a) { FOLLOW.cardH = 0; return; }
+  const sp = SPECIES[a.t], dead = a.dead, e = Math.max(0, Math.min(1, a.e / sp.max));
+  const co = document.getElementById('coach'), lift = co && !co.hidden && co.style.top === 'auto' ? co.offsetHeight + 8 : 0; // the coach card sits right above the toolbar: stack over it
+  followEl.style.bottom = (barH + 6 + lift) + 'px';
+  followEl.querySelector('.dot').style.background = sp.color;
+  followEl.querySelector('.fn').textContent = SINGULAR[sp.id] || sp.name;
+  followEl.querySelector('.fs').textContent = dead ? 'age ' + fmtClock(a.age) : moodOf(a) + ' · ' + fmtClock(a.age) + ' old';
+  const bar = followEl.querySelector('.fe i'); bar.style.width = (dead ? 0 : e * 100) + '%'; bar.style.background = e < 0.3 ? 'var(--danger)' : e < 0.6 ? '#e8cf8c' : 'var(--accent)';
+  followEl.querySelector('.fm').textContent = a.mealAt === undefined ? 'Has not eaten yet.' : 'Last meal: ' + AN(a.mealT) + ', ' + ago(S.t - a.mealAt);
+  const fd = followEl.querySelector('.fd'); fd.hidden = !dead; fd.textContent = dead ? fateText(a) : '';
+  const rn = followEl.querySelector('.fr'); rn.hidden = !S.game.on || dead;
+  if (!rn.hidden) rn.textContent = RUN_PROTECTED[a.t] ? 'Protected: catching it costs points.' : sp.invasive ? 'Invasive · worth ' + RUN_VAL[a.t] : 'Worth ' + (RUN_VAL[a.t] === 0.5 ? '½' : RUN_VAL[a.t]);
+  FOLLOW.cardH = followEl.offsetHeight + 8 + lift;
+}
+document.getElementById('followStop').addEventListener('click', () => endFollow());
+
 const PAN_KEYS = { ArrowLeft: -0.25, ArrowRight: 0.25 };
 const CAM_KEYS = { ArrowDown: 0.25, ArrowUp: -0.25, PageDown: 0.85, PageUp: -0.85, Home: 'top', End: 'bottom' };
 // the depth button: dive to the deep, or come back up
 const depthBtn = document.getElementById('depthBtn');
-depthBtn.addEventListener('click', () => { cam.target = cam.y > 300 ? -SKY : clampCam(yAtDepth(1000) - innerHeight / scale * 0.4); });
+depthBtn.addEventListener('click', () => { endFollow(true); cam.target = cam.y > 300 ? -SKY : clampCam(yAtDepth(1000) - innerHeight / scale * 0.4); });
 function updateDepthBtn() {
   // no button when the camera cannot get down far enough to count as in the deep (cam.y > 300): the deep is in view already
   const fits = camMax() <= 300; depthBtn.hidden = fits || !menuEl.hidden;

@@ -129,7 +129,7 @@ function audioTick(now) {
   // the water: pollution muffles, night darkens, warmth makes the chord waver
   const pol = MOOD.pol, n = MOOD.n;
   // and deeper down, darker still: the camera's depth closes the filter further
-  const deepK = Math.max(0, Math.min(1, (cam.y + innerHeight / scale * 0.5 - DEEP_TOP) / 700));
+  const deepK = Math.max(0, Math.min(1, ((innerHeight * 0.5 - oy) / scale - DEEP_TOP) / 700));
   ease(SOUND.water.frequency, 3200 * (1 - 0.86 * pol) * (1 - 0.4 * n) * (1 - 0.7 * deepK), 0.8);
   ease(SOUND.seaF.frequency, 520 * (1 - 0.5 * pol), 0.8);
   ease(SOUND.wet.gain, 0.3 + 0.2 * n, 2);
@@ -151,7 +151,7 @@ function audioTick(now) {
   // a sperm whale hunting: trains of echolocation clicks, louder the closer the camera is to it
   const w = D.whale;
   if (w && (w.phase === 'dive' || w.phase === 'hunt') && t >= (SOUND.nextClick || 0)) {
-    const near = Math.max(0, 1 - Math.abs(w.y - (cam.y + innerHeight / scale * 0.5)) / 1200);
+    const near = Math.max(0, 1 - Math.abs(w.y - (innerHeight * 0.5 - oy) / scale) / 1200);
     if (near > 0.05) for (let k = 0; k < 6; k++) noiseBurst(t + k * (w.phase === 'hunt' ? 0.09 : 0.45), 0.012, 2600, 0.5 * near, Math.max(-1, Math.min(1, w.x / WW * 2 - 1)) * 0.7);
     SOUND.nextClick = t + (w.phase === 'hunt' ? 1.2 : 3.2);
   }

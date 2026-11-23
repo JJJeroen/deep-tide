@@ -261,6 +261,102 @@ async function seeds(b) {
   await q.close();
 }
 
+// M9 follow one animal: a tap on an animal zooms the camera onto it, a card says how it is doing, a tap elsewhere / Esc / a tool
+// / a drag / the wheel lets go; when it dies the card says how
+const pickInView = (p) => p.evaluate(() => {
+  const at = a => ({ x: ox + a.x * scale, y: oy + a.y * scale });
+  const ok = a => { const q = at(a); return !a.dead && a.t !== PLANKTON && a.x > WW * 0.35 && a.x < WW * 0.65 && a.y > 60 && a.y < WH - 120 && q.x > 120 && q.x < innerWidth - 120 && q.y > topReserve + 80 && q.y < innerHeight - barH - 120; };
+  const a = S.agents.filter(ok).sort((u, v) => SPECIES[v.t].size - SPECIES[u.t].size)[0]; // the biggest: nothing else within reach
+  return { id: a.id, ...at(a) };
+});
+async function followMode(b) {
+  console.log('follow one animal');
+  const p = await openPage(b, 1600, 900);
+  await p.goto(URL + '?seed=follow-1'); await p.click('[data-mode=run]'); await p.evaluate(() => setHints(false)); await wait(p, 1500);
+  const base = await count(p, () => ({ s: baseScale, ox, oy }));
+  let q = await pickInView(p);
+  await p.mouse.move(q.x, q.y); await p.mouse.down(); await p.mouse.up(); await wait(p, 1600);
+  const st = await count(p, () => { const a = FOLLOW.a; return { id: a && a.id, p: FOLLOW.p, s: scale, ax: ox + a.x * scale, ay: oy + a.y * scale, W: innerWidth, H: innerHeight, card: !document.getElementById('follow').hidden, cardTop: document.getElementById('follow').getBoundingClientRect().top, barTop: document.getElementById('bar').getBoundingClientRect().top, ins: !!inspect }; });
+  await shot(p, 'f1-desktop-following');
+  check('follow: a click on an animal follows exactly that animal and zooms in', st.id === q.id && st.p === 1 && st.s > base.s * 1.9, `scale ${base.s.toFixed(2)} -> ${st.s.toFixed(2)}`);
+  check('follow: the animal sits in the middle of the free part of the screen', Math.abs(st.ax - st.W / 2) < 60 && st.ay > 150 && st.ay < st.cardTop, `at ${Math.round(st.ax)},${Math.round(st.ay)}`);
+  check('follow: the card shows above the toolbar and replaces the hover label', st.card && st.cardTop < st.barTop && !st.ins);
+  // picking goes through the same transform: a click on the animal where it is drawn finds it (and the transform round-trips)
+  const rt = await count(p, () => { const a = FOLLOW.a, w = toWorld({ clientX: ox + a.x * scale, clientY: oy + a.y * scale }); return Math.hypot(w.x - a.x, w.y - a.y); });
+  check('follow: screen -> world agrees with the zoomed view', rt < 0.01, rt.toFixed(4));
+  // the sim fields: id and last meal
+  const fields = await count(p, () => ({ ids: new Set(S.agents.map(a => a.id)).size === S.agents.length, meals: S.agents.filter(a => a.mealAt !== undefined).length }));
+  check('follow: every agent has its own id and meals are recorded', fields.ids && fields.meals > 0, fields.meals + ' fed');
+  // a hunter's or grazer's meal line reads like a sentence
+  const meal = await count(p, () => document.querySelector('#follow .fm').textContent);
+  check('follow: the card has a last-meal line', /^(Last meal: (a|an|plankton)|Has not eaten)/.test(meal), meal);
+  // let go: empty water, Esc, a tool key, the wheel and a drag each end it
+  const goes = async (name, act) => {
+    await p.mouse.move(q.x, q.y); await p.mouse.down(); await p.mouse.up(); await wait(p, 300); // (re)follow something
+    const had = await count(p, () => !!FOLLOW.a); await act(); await wait(p, 1400);
+    check('follow: ' + name + ' lets go and the view comes back', had && await count(p, () => !FOLLOW.a && FOLLOW.p === 0 && scale === baseScale && document.getElementById('follow').hidden && !document.body.classList.contains('following')));
+  };
+  q = await pickInView(p);
+  await goes('Esc', () => p.keyboard.press('Escape'));
+  q = await pickInView(p);
+  await goes('a tool key', () => p.keyboard.press('n')); await p.keyboard.press('w');
+  q = await pickInView(p);
+  await goes('the wheel', () => p.mouse.wheel(0, 120));
+  await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 300); q = await pickInView(p);
+  await goes('a drag', async () => { await p.mouse.move(700, 500); await p.mouse.down(); await p.mouse.move(700, 420, { steps: 5 }); await p.mouse.up(); });
+  await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 300); q = await pickInView(p);
+  await goes('a click on empty water', async () => { const e = await count(p, () => { const a = FOLLOW.a; return { x: innerWidth / 2 + (a.x > WW / 2 ? -250 : 250), y: oy + 30 * scale }; }); await p.mouse.click(e.x, e.y); });
+  // the end of a followed animal: netted (the camera rides up with it), eaten (names the predator)
+  await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 300); q = await pickInView(p);
+  await p.mouse.move(q.x, q.y); await p.mouse.down(); await p.mouse.up(); await wait(p, 1200);
+  await p.evaluate(() => { tool = 'watch'; const a = FOLLOW.a; netAt(a.x, a.y, 4); }); await wait(p, 500);
+  const net = await count(p, () => ({ txt: document.querySelector('#follow .fd').textContent, vis: !document.querySelector('#follow .fd').hidden, lift: !!FOLLOW.lift, still: !!FOLLOW.a }));
+  check('follow: a netted animal is followed up and the card says so', net.vis && /net/.test(net.txt) && net.lift && net.still, JSON.stringify(net));
+  await wait(p, 4500);
+  check('follow: a few seconds after it died the camera lets go', await count(p, () => !FOLLOW.a));
+  await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 300);
+  const eaten = await p.evaluate(() => {
+    const prey = S.agents.find(a => !a.dead && a.t === GRAZER && a.y > 60 && a.y < WH - 120), pred = S.agents.find(a => !a.dead && SPECIES[a.t].size >= 14);
+    startFollow(prey); eat(pred, prey, 0); updateFollowCard();
+    return { txt: document.querySelector('#follow .fd').textContent, fate: prey.fate === pred.t, meal: pred.mealT === prey.t };
+  });
+  check('follow: an eaten animal names its predator', eaten.fate && eaten.meal && /^Eaten by an? /.test(eaten.txt), eaten.txt);
+  await p.evaluate(() => endFollow(true));
+  // photo mode keeps the zoomed view: what you follow is what the picture shows
+  await p.evaluate(() => { cam.y = cam.target = -SKY; }); await wait(p, 200); q = await pickInView(p);
+  await p.mouse.move(q.x, q.y); await p.mouse.down(); await p.mouse.up(); await wait(p, 1500);
+  await p.keyboard.press('f'); await wait(p, 300);
+  const ph = await count(p, () => ({ on: !!photo, card: getComputedStyle(document.getElementById('follow')).visibility, r: photoRect(), s: scale }));
+  const pic = await savePicture(p);
+  check('follow: photo mode takes the zoomed view (card hidden, picture drawn)', ph.on && ph.card === 'hidden' && pic.size && pic.size.w === ph.r.w && ph.s > base.s * 1.9, `${pic.size && pic.size.w}x${pic.size && pic.size.h}`);
+  await p.keyboard.press('f'); await wait(p, 300);
+  check('follow: leaving photo mode brings the card back', await count(p, () => !photo && !!FOLLOW.a && !document.getElementById('follow').hidden));
+  // Learn mode: the coach card sits above the toolbar too; the follow card stacks over it instead of hiding behind it
+  await p.goto(URL + '?seed=follow-1'); await p.evaluate(() => setHints(true)); await p.click('[data-mode=learn]'); await wait(p, 1500);
+  await p.evaluate(() => { startFollow(S.agents.find(a => !a.dead && a.t !== PLANKTON && a.y > 60 && a.y < WH - 120)); }); await wait(p, 600);
+  const ov = await count(p, () => { const c = document.getElementById('coach').getBoundingClientRect(), f = document.getElementById('follow').getBoundingClientRect(); return { coach: !document.getElementById('coach').hidden, hit: !(f.bottom <= c.top || f.top >= c.bottom || f.right <= c.left || f.left >= c.right) }; });
+  check('follow: with the Learn coach card up the two cards do not overlap', ov.coach && !ov.hit, JSON.stringify(ov));
+  errorCheck('follow');
+  await p.close();
+  // phone: a real tap, the card fits the width and clears the toolbar, no sideways scroll
+  const m = await openPage(b, 390, 844, true);
+  await m.goto(URL + '?seed=follow-1'); await m.tap('[data-mode=sandbox]'); await wait(m, 1500);
+  const base2 = await count(m, () => baseScale);
+  q = await m.evaluate(() => {
+    const at = a => ({ x: ox + a.x * scale, y: oy + a.y * scale });
+    const a = S.agents.filter(a => { const q = at(a); return !a.dead && a.t !== PLANKTON && a.y > 60 && a.y < WH - 120 && q.x > 60 && q.x < innerWidth - 60 && q.y > topReserve + 80 && q.y < innerHeight - barH - 120; }).sort((u, v) => SPECIES[v.t].size - SPECIES[u.t].size)[0];
+    return { id: a.id, ...at(a) }; });
+  await m.touchscreen.tap(q.x, q.y); await wait(m, 1600);
+  const ms = await count(m, () => { const a = FOLLOW.a, c = document.getElementById('follow').getBoundingClientRect(), bar = document.getElementById('bar').getBoundingClientRect(); return { id: a && a.id, s: scale, p: FOLLOW.p, ax: ox + a.x * scale, ay: oy + a.y * scale, cl: c.left, cr: c.right, cb: c.bottom, bt: bar.top, W: innerWidth, sw: document.documentElement.scrollWidth, top: topReserve }; });
+  await shot(m, 'f2-phone-following');
+  check('follow phone: a tap follows it and zooms in (a grazer was a few pixels)', ms.id === q.id && ms.p === 1 && ms.s > base2 * 2, `scale ${base2.toFixed(2)} -> ${ms.s.toFixed(2)}`);
+  check('follow phone: the animal is in view above the card, the card fits and clears the toolbar, no sideways scroll', ms.ax > 0 && ms.ax < ms.W && ms.ay > ms.top && ms.cl >= 0 && ms.cr <= ms.W && ms.cb <= ms.bt + 1 && ms.sw <= ms.W + 1, JSON.stringify(ms));
+  await m.tap('#followStop'); await wait(m, 1400);
+  check('follow phone: the card\'s close button lets go', await count(m, () => !FOLLOW.a && FOLLOW.p === 0 && scale === baseScale));
+  errorCheck('follow phone');
+  await m.close();
+}
+
 // M9 photo mode: the ocean holds still, the panels step aside, the tools do nothing, and Save picture writes a PNG of the
 // world as framed, at 2 px per world unit, without the labels, ruler or cursor
 const pngSize = buf => buf.length > 24 && buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) } : null;
@@ -423,7 +519,10 @@ async function phone(b) {
     const at = a => ({ x: ox + a.x * scale, y: oy + a.y * scale }), a = S.agents.find(a => { const q = at(a); return !a.dead && a.t !== PLANKTON && a.y > 40 && q.x > 30 && q.x < innerWidth - 30 && q.y > topReserve + 60 && q.y < innerHeight - barH - 80; });
     return at(a); });
   await p.touchscreen.tap(q.x, q.y); await wait(p, 300);
-  check('phone: tapping an animal shows its label', await count(p, () => !!inspect));
+  check('phone: tapping an animal follows it (the card names it)', await count(p, () => !!FOLLOW.a && !document.getElementById('follow').hidden && document.querySelector('#follow .fn').textContent.length > 2));
+  const gap = await p.evaluate(() => { for (let x = 40; x < innerWidth - 40; x += 20) for (let y = topReserve + 120; y < innerHeight - barH - 200; y += 20) { const w = toWorld({ clientX: x, clientY: y }); if (!pickAnimal(w.x, w.y, 70) && !ghostAt(w.x, w.y, 40)) return { x, y }; } return null; });
+  await p.touchscreen.tap(gap.x, gap.y); await p.waitForFunction(() => !FOLLOW.a && FOLLOW.p === 0, null, { timeout: 6000 }).catch(() => {});  // empty water: lets go
+  check('phone: a tap on empty water lets go and the view is back', await count(p, () => !FOLLOW.a && FOLLOW.p === 0 && scale === baseScale));
   // the species panel is a strip of dots and counts; a tap opens it over the water without moving the column
   check('phone: species panel starts folded (names, no sparklines), the column starts under it', await count(p, () =>
     !document.getElementById('stats').classList.contains('open') && topReserve < 140 && !document.querySelector('#row0 .spark').offsetParent && !!document.querySelector('#row0 .nm').offsetParent), 'top ' + await count(p, () => topReserve));
@@ -512,7 +611,7 @@ async function phone(b) {
 
 (async () => {
   const b = await chromium.launch({ executablePath: browserPath(), args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
-  try { await desktop(b); await seeds(b); await photoMode(b); await phone(b); await installable(b); }
+  try { await desktop(b); await seeds(b); await photoMode(b); await followMode(b); await phone(b); await installable(b); }
   catch (e) { check('test ran to the end', false, e.message.split('\n')[0]); }
   finally { await b.close(); }
   const failed = results.filter(r => !r.ok);
