@@ -939,6 +939,7 @@ function startHeal(seed) {
   seedWorld(seed);
   S.game = { on: false }; S.trawlers = []; S.mpa = null; S.temp = RUN.TEMP_START;
   S.effects = []; S.events = []; S.flags = { stockHint: true }; // (no "stock them back" tip: nobody can)
+  countAll(); // arrivals (stepRecolonize) come after a step's count: recount, as loadOcean does, so saving here changes nothing
 }
 // the next season opens on this ocean: its clock back at 0 (morning, minute 1), times kept relative, a fresh log. Call
 // startRun() after it. "The water is calm." whatever the water looks like: that is the point.

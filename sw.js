@@ -4,7 +4,7 @@
 // Pages serves the game under /deep-tide/.
 const CACHE = 'deep-tide'; // one cache; change the name only if what is kept in it changes shape
 const CORE = ['./', 'index.html', 'sim.js', 'deep.js', 'sprites.js', 'scene.js', 'boats.js', 'deepview.js', 'render.js', 'timelapse.js', 'coach.js',
-  'audio.js', 'ui.js', 'campaign.js', 'heal.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];
+  'audio.js', 'ui.js', 'generations.js', 'heal.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   // cache: 'reload' skips the HTTP cache, so the first copy is the current one

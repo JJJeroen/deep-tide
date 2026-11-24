@@ -36,7 +36,7 @@ const HINTS_RUN = {
   reserve: 'Drag across the water to close a strip to all fishing. It costs nothing but the fish inside it; what grows up there spills over.',
 };
 
-let mode = null; // null (menu, ambient sandbox behind it) | 'learn' | 'sandbox' | 'run' ('learn' is the sandbox with coach.js steps; a Generations season is 'run' with campaign.js CAMP set)
+let mode = null; // null (menu, ambient sandbox behind it) | 'learn' | 'sandbox' | 'run' ('learn' is the sandbox with coach.js steps; a Generations season is 'run' with generations.js CAMP set)
 const menuEl = document.getElementById('menu'), endEl = document.getElementById('end'), hudEl = document.getElementById('hud');
 const tempEl = document.getElementById('temp');
 const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
@@ -44,9 +44,14 @@ const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padS
 // M9: ?seed=... replays one ocean (every game on the page uses it); otherwise each game gets a fresh seed. Kept to a-z, 0-9
 // and '-' (at most 24 characters) because the seed is printed on the end screen.
 const URL_SEED = (new URLSearchParams(location.search).get('seed') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
-// camp (campaign.js): a Generations season (or, saved mid-heal, its heal): the seed and the ocean come from the campaign
+// M9 part 5 Generations (generations.js): the campaign this page is playing, or null. Declared here, and every call into
+// generations.js is guarded, so that the other modes still work if that one file did not load.
+let CAMP = null;
+const campBetween = () => !!(CAMP && CAMP.between);
+const campHas = f => typeof window[f] === 'function';
+// camp (generations.js): a Generations season (or its heal or ready card): the seed and the ocean come from the campaign
 function newGame(m, camp) {
-  if (!camp) campLeave(); // any other game leaves the campaign (it stays saved)
+  if (!camp && campHas('campLeave')) campLeave(); // any other game leaves the campaign (it stays saved)
   mode = m; paused = false; speedMul = 1; acc = 0; ptr.down = false;
   resetScene();
   document.getElementById('pause').textContent = 'Pause'; document.getElementById('pause').classList.remove('on');
@@ -57,8 +62,8 @@ function newGame(m, camp) {
   tlReset(); resetWorld(seed); resetDeep(seed); cam.target = -SKY; logShown = 0; logEl.innerHTML = ''; LIFTS.length = 0; TAGS.length = 0; SAILING.length = 0; SILT.length = 0; seenTrawlers = []; inspect = null; endFollow(true);
   if (camp) campSetup(seed);
   for (const b of document.querySelectorAll('#bar [data-tool]')) b.classList.remove('pulse');
-  const run = m === 'run', healing = !!camp && camp.rec.phase === 'heal';
-  if (run && !healing) startRun(); else if (!healing) S.temp = 0.5;
+  const run = m === 'run', shown = !!camp && (camp.rec.phase === 'heal' || !!camp.showReady); // only shown, not played: the heal or the ready card
+  if (run && !shown) startRun(); else if (!shown) S.temp = 0.5;
   tempEl.value = Math.round(S.temp * 100); tempEl.disabled = run;
   tempEl.parentElement.title = run ? 'The water warms on its own in this run' : '';
   document.querySelector('[data-tool=stock]').disabled = run; stockSel.disabled = run;
@@ -72,7 +77,7 @@ function newGame(m, camp) {
   hudEl.hidden = !run; menuEl.hidden = true; endEl.hidden = true; endEl.classList.remove('light');
   setTool('watch');
   coachReset(m);
-  campAfterSetup();
+  if (camp) campAfterSetup();
 }
 
 function updateHud() {
@@ -101,7 +106,7 @@ function showEnd() {
   endFollow(true);
   const r = S.game.result;
   if (!r || !endEl.hidden || (CAMP && CAMP.between)) return;
-  if (CAMP) campSeasonEnd(r); // saves the season and starts the heal; the card is the run's, with the campaign's parts (campaign.js)
+  if (CAMP) campSeasonEnd(r); // saves the season and starts the heal; the card is the run's, with the campaign's parts (generations.js)
   const C = CAMP ? campCardParts() : null;
   const pct = v => Math.round(v * 100) + '%', list = a => a.length ? a.join(', ') : 'none';
   logEl.innerHTML = ''; // the run's messages would pile up behind the card
@@ -247,13 +252,13 @@ let pausedBeforeMenu = false;
 document.getElementById('menuBtn').addEventListener('click', () => {
   if (!menuEl.hidden) return;
   pausedBeforeMenu = paused; paused = true; ptr.down = false; // the run holds still while the menu is up
-  endEl.hidden = true; menuEl.hidden = false; document.getElementById('menuBack').hidden = !mode; campMenu();
+  endEl.hidden = true; menuEl.hidden = false; document.getElementById('menuBack').hidden = !mode; if (campHas('campMenu')) campMenu();
 });
 document.querySelector('#menuBack button').addEventListener('click', () => {
   menuEl.hidden = true;
   if (S.game.over || campBetween()) endEl.hidden = false; else paused = pausedBeforeMenu;
 });
-document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => b.dataset.mode === 'gen' ? campMenuPick() : newGame(b.dataset.mode)));
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { if (b.dataset.mode !== 'gen') newGame(b.dataset.mode); else if (campHas('campMenuPick')) campMenuPick(); }));
 document.getElementById('hintsBtn').addEventListener('click', () => setHints(!hintsOn));
 // M9 photo mode: the ocean holds still, the panels step aside, a drag or the wheel frames the view, and Save picture writes
 // it as a PNG (render.js renderPhoto: the world as framed, at 2 px per world unit). F, Esc or Done leaves, and the game goes

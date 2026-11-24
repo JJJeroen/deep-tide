@@ -2,13 +2,15 @@
 // side is in sim.js after runScore). Up to GEN.SEASONS Anthropocene runs on one ocean: each season opens on the ocean the last
 // one left, after it was left alone for GEN.HEAL sim seconds, and the log still says "The water is calm." During a season the
 // page is simply in run mode (mode 'run', every run rule and test applies); CAMP says which campaign it is part of.
-// Saved in this browser only (localStorage, one key, about 250 KB): after a season ends (the ocean as it ended, so a reload
+// Saved in this browser only (localStorage, one key, about 110-200 KB): after a season ends (the ocean as it ended, so a reload
 // mid-heal heals again from there) and after the heal (the next season's start). A season left halfway starts over: nothing is
-// saved during play. Storage may be missing, blocked or full: every access is wrapped, and the campaign then goes on in this
-// page but cannot resume. The timelapse frames are never stored; only two small pictures (season 1's start, the last end).
-// Loaded after ui.js (newGame, showEnd, endEl, menuEl, fmtClock).
+// saved during play. Storage may be missing, blocked or full: every access is wrapped; a write that is refused leaves the
+// last save as it was (a whole earlier checkpoint), and without any storage the campaign goes on in this page but cannot
+// resume. The timelapse frames are never stored; only two small pictures (season 1's start, the last end).
+// Loaded after ui.js (CAMP, campBetween, newGame, showEnd, endEl, menuEl, fmtClock). ui.js declares CAMP and calls in here
+// only through guards, so the other modes work even if this file did not load.
 const CAMP_KEY = 'deep-tide.generations', CAMP_V = 1; // bump CAMP_V (or GEN.V in sim.js) when the saved shape changes: an older save is then ignored
-let CAMP = null; // { rec, saved, between: null | 'end' | 'heal' | 'ready', heal, end, nowUrl }
+// CAMP (ui.js): { rec, saved, between: null | 'end' | 'heal' | 'ready' | 'final', heal, end, nowUrl, showReady }
 
 // ---- storage
 function campValid(r) {
@@ -19,22 +21,30 @@ function campValid(r) {
   if (r.phase === 'play' && r.season === 1) return true; // season 1 starts from its seed
   return !!(r.ocean && r.ocean.v === GEN.V && r.ocean.agents && r.deep && r.deep.agents);
 }
-let campOld = false; // a save was there but cannot be read (an older format, or damaged): the menu says so once
-function campRead() {
-  let txt = null;
-  try { txt = localStorage.getItem(CAMP_KEY); } catch (e) { return null; }
+let campOld = false; // a save was there but cannot be read (an older format, or damaged): the menu says so until a new one is saved
+function campText() { try { return localStorage.getItem(CAMP_KEY); } catch (e) { return null; } }
+function campParse(txt) {
   if (!txt) return null;
   try { const r = JSON.parse(txt, jsonUnpack); if (campValid(r)) return r; } catch (e) { /* damaged */ }
   campOld = true;
   return null;
 }
-// true when kept. False: no storage, blocked, or full; then the old save is removed too, so it cannot resume a wrong ocean.
+const campRead = () => campParse(campText()); // a fresh copy each time: the caller may change it
+let campPeekMemo = { txt: null, val: null };
+function campPeek() { // what the menu needs (phase, season, seasons played), parsed again only when the save changed
+  const txt = campText();
+  if (txt !== campPeekMemo.txt) { const r = campParse(txt); campPeekMemo = { txt, val: r && { phase: r.phase, season: r.season, played: r.seasons.length } }; }
+  return campPeekMemo.val;
+}
+// true when kept. False: no storage, blocked, or full (setItem is all or nothing, so the last save stays as it was: an earlier
+// checkpoint of this campaign). Full: it tries once more without the pictures, which the campaign can do without.
 // A campaign that is over (rec.closed) is never written again: a picture still being encoded must not bring its save back
 function campWrite(rec) {
   if (rec.closed) return false;
   rec.saved = Date.now();
-  try { localStorage.setItem(CAMP_KEY, JSON.stringify(rec, jsonPack)); return true; }
-  catch (e) { campClear(); return false; }
+  const put = r => { try { localStorage.setItem(CAMP_KEY, JSON.stringify(r, jsonPack)); return true; } catch (e) { return false; } };
+  if (put(rec)) return true;
+  return !!((rec.first && rec.first.pic) || rec.lastPic) && put({ ...rec, first: rec.first && { ...rec.first, pic: null }, lastPic: null });
 }
 function campClear() { try { localStorage.removeItem(CAMP_KEY); } catch (e) { /* nothing to clear */ } }
 
@@ -42,13 +52,19 @@ function campClear() { try { localStorage.removeItem(CAMP_KEY); } catch (e) { /*
 function campStart() { // the menu's Generations button: continue the saved campaign, or start one
   const r = campRead();
   if (!r) return campNew();
-  CAMP = { rec: r, saved: true };
-  if (r.phase === 'done') { menuEl.hidden = true; campFinal(); return; }
-  newGame('run', CAMP);
+  CAMP = { rec: r, saved: true, showReady: r.phase === 'play' && r.season > 1 }; // a later season opens on its ready card: time passed
+  try {
+    if (r.phase === 'done') { menuEl.hidden = true; campFinal(); }
+    else newGame('run', CAMP);
+  } catch (e) { // a save that looked right but does not load (damaged, or a format change without a new version number)
+    console.warn('Generations: the saved campaign could not be loaded; starting a new one.', e);
+    campStopHeal(); CAMP = null; campClear(); campNew(); campOld = true;
+  }
 }
 function campNew() {
   const rec = { v: CAMP_V, seed: URL_SEED || freshSeed(), season: 1, phase: 'play', seasons: [], first: null, ocean: null, deep: null };
   CAMP = { rec, saved: campWrite(rec) };
+  if (CAMP.saved) campOld = false; else campClear(); // (an older campaign that could not be overwritten must not come back instead)
   newGame('run', CAMP);
 }
 // called by newGame for a campaign game, right after resetWorld/resetDeep(seed): put the saved ocean in
@@ -57,14 +73,17 @@ function campSetup(seed) {
   campStopHeal(); campFreeUrl(); c.between = null; c.end = null;
   if (r.ocean) {
     loadOcean(r.ocean); loadDeep(r.deep);
-    if (r.phase === 'play') { beginSeason(seed); seedDeep(seed); }
+    if (r.phase === 'play' && !c.showReady) { beginSeason(seed); seedDeep(seed); }
   }
   if (r.phase === 'play' && r.season === 1) r.first = { ...oceanSummary(), pic: null }; // the first ocean (its picture is taken from the timelapse)
 }
-// after newGame for a campaign that was saved mid-heal: show the heal
-function campAfterSetup() { if (CAMP && CAMP.rec.phase === 'heal') { paused = true; hudEl.hidden = true; CAMP.end = oceanSummary(); campHealStart(); campHealShow(); } }
+// after newGame for a campaign continued from its save: mid-heal, show the heal; at a later season's start, its ready card
+function campAfterSetup() {
+  const c = CAMP; if (!c) return;
+  if (c.rec.phase === 'heal') { paused = true; hudEl.hidden = true; c.end = oceanSummary(); campHealStart(); campHealShow(); }
+  else if (c.showReady) { c.showReady = false; paused = true; hudEl.hidden = true; c.end = c.rec.seasons[c.rec.seasons.length - 1]; campReady(); }
+}
 function campLeave() { campStopHeal(); campFreeUrl(); CAMP = null; } // another game: the campaign stays saved
-const campBetween = () => !!(CAMP && CAMP.between);
 const campLabel = () => 'Generations · season ' + CAMP.rec.season + ' of ' + GEN.SEASONS;
 
 // ---- pictures (the timelapse's frames: TL.frames[i].blob, encoded asynchronously, .ready when done)
@@ -88,7 +107,8 @@ function campSeasonEnd(r) {
   const F = TL.frames, mine = rec;
   if (k === 1) campFramePic(F[0]).then(b => b && blobToDataURL(b)).then(u => {
     if (!u || !CAMP || CAMP.rec !== mine) return;
-    mine.first.pic = u; CAMP.saved = campWrite(mine); campSetImg('cmpFirst', u);
+    mine.first.pic = u; campSetImg('cmpFirst', u);
+    if (mine.phase !== 'heal') CAMP.saved = campWrite(mine); // the heal's save takes it along (one write less), unless the heal is done already
   });
   campFramePic(F[F.length - 1]).then(b => {
     if (!b || !CAMP || CAMP.rec !== mine) return;
@@ -109,7 +129,7 @@ function campCompare(first, now, nowCap, firstPic, nowPic) {
       <tr><td>Water quality</td><td>${campPct(first.water)}</td><td>${campPct(now.water)}</td></tr></table>`;
 }
 const campAvg = rec => Math.round(rec.seasons.reduce((a, s) => a + s.score, 0) / rec.seasons.length);
-const savedLine = () => CAMP.saved ? 'Saved in this browser.' : 'This browser would not keep it: the campaign ends when you close the page.';
+const savedLine = () => CAMP.saved ? 'Saved in this browser.' : 'This browser would not keep the latest save: closing the page would lose it.';
 // the parts of the run's end card that differ in a campaign (ui.js showEnd puts them in)
 function campCardParts() {
   const rec = CAMP.rec, k = CAMP.endSeason, last = k >= GEN.SEASONS, avg = campAvg(rec);
@@ -153,13 +173,13 @@ function campShowMenu() { menuEl.hidden = false; document.getElementById('menuBa
 let campGen = 0;
 function campHealStart() {
   const rec = CAMP.rec, steps = healSteps();
-  const H = CAMP.heal = { id: ++campGen, seed: rec.seed + '.h' + rec.season, steps, snaps: [], done: null, worker: null, local: false, i: 0, disp: 0, lastShow: 0, shown: false };
+  const H = CAMP.heal = { id: ++campGen, seed: rec.seed + '.h' + rec.season, steps, snaps: [], done: null, worker: null, local: false, i: 0, disp: 0, lastShow: 0, shown: false, lastMsg: performance.now(), lastTick: 0 };
   try {
     const w = H.worker = new Worker('heal.js');
-    const fail = () => { if (CAMP && CAMP.heal === H && !H.done) { w.terminate(); H.worker = null; H.local = true; H.snaps = []; H.disp = 0; } };
+    const fail = H.fail = () => { if (CAMP && CAMP.heal === H && !H.done && !H.local) { w.terminate(); H.worker = null; H.local = true; H.snaps = []; H.disp = 0; } };
     w.onmessage = e => {
       if (!CAMP || CAMP.heal !== H) return;
-      const d = e.data;
+      const d = e.data; H.lastMsg = performance.now();
       if (d.kind === 'snap') H.snaps.push(d);
       else if (d.kind === 'done') { H.done = d; w.terminate(); H.worker = null; campHealed(); }
       else fail();
@@ -186,12 +206,18 @@ function campHealShow() {
   document.getElementById('endCard').innerHTML = `<h2>The fleet stays in port</h2>
     <p>No nets, no waste, no head office. The ocean is left alone for a while.</p>
     <div class="healbar" aria-hidden="true"><i id="healFill"></i></div>
-    <p class="healclock">Left alone <b id="healClock">0:00</b> of ${fmtClock(GEN.HEAL)}</p>`;
-  endEl.hidden = false;
+    <p class="healclock">Left alone <b id="healClock">0:00</b> of ${fmtClock(GEN.HEAL)}</p>
+    <div class="actions"><button id="campMenu">Menu</button></div>`;
+  endEl.hidden = false; campWireCommon();
   requestAnimationFrame(t => campHealTick(H, t));
 }
 function campHealTick(H, now) {
   if (H.stop || !CAMP || CAMP.heal !== H) return;
+  // a worker that has said nothing for 15 s (killed, stuck) is replaced by the page's own stepping; time with the tab hidden
+  // (no frames) does not count, since the browser may hold the worker back then
+  if (H.lastTick && now - H.lastTick > 1000) H.lastMsg += now - H.lastTick;
+  H.lastTick = now;
+  if (H.worker && !H.done && now - H.lastMsg > 15000 && H.fail) H.fail();
   let frac;
   if (H.local && !H.done) {
     if (H.i === 0) { loadOcean(CAMP.rec.ocean); loadDeep(CAMP.rec.deep); startHeal(H.seed); seedDeep(H.seed); }
@@ -223,6 +249,7 @@ function campReady() {
     <p>While it was left alone (${fmtClock(GEN.HEAL)}): ${back.length ? campList(back) + ' came back. ' : ''}${still.length ? campList(still) + (still.length > 1 ? ' are' : ' is') + ' still gone. ' : ''}<span class="moved">${moved}.</span></p>
     <div class="actions"><button id="campGo" class="on">Start season ${k}</button><button id="campMenu">Menu</button><button id="campQuit">Abandon the campaign</button></div>
     <p class="seedline">Campaign ocean <b>${rec.seed}</b>. ${savedLine()}</p>`;
+  endEl.hidden = false; menuEl.hidden = true;
   campWireReady();
 }
 function campWireReady() { const g = document.getElementById('campGo'); if (g) g.onclick = () => { endEl.classList.remove('light'); newGame('run', CAMP); }; campWireCommon(); }
@@ -266,12 +293,12 @@ function campFinal(early) {
 
 // ---- the menu: Generations continues a saved campaign, and offers to abandon it
 function campMenu() {
-  const r = campRead(), sub = document.getElementById('genSub'), box = document.getElementById('genSaved');
+  const r = campPeek(), sub = document.getElementById('genSub'), box = document.getElementById('genSaved');
   if (!sub || !box) return;
   const live = CAMP && !['final'].includes(CAMP.between) ? CAMP.rec : null, s = live || r;
   let txt = 'Five seasons on one ocean. Each new fleet inherits the water the last one left, and calls it normal.';
   if (live && !CAMP.between) txt = `In season ${s.season} of ${GEN.SEASONS} now (Back carries on; this starts the season over).`;
-  else if (s && s.phase === 'play') txt = s.season === 1 ? 'Continue: season 1 of ' + GEN.SEASONS + ' starts over.' : `Continue: season ${s.season} of ${GEN.SEASONS}, on the ocean season ${s.season - 1} left behind.`;
+  else if (s && s.phase === 'play') txt = s.season === 1 ? 'Continue: season 1 of ' + GEN.SEASONS + ' starts over.' : `Continue: season ${s.season} of ${GEN.SEASONS}. The ocean season ${s.season - 1} left has had time to heal.`;
   else if (s && s.phase === 'heal') txt = `Continue: season ${s.season} of ${GEN.SEASONS} is over, and the ocean is left alone for a while.`;
   else if (s && s.phase === 'done') txt = 'Your campaign is over. See how it ended.';
   else if (campOld) txt += ' (A campaign saved by an older version could not be continued.)';
@@ -292,6 +319,7 @@ function campMenu() {
 // the menu's Generations button picks up a campaign this page is already in (between seasons, or mid-season), else the saved one
 function campMenuPick() {
   if (CAMP && CAMP.between && CAMP.between !== 'final') { menuEl.hidden = true; endEl.hidden = false; return; } // back to the card
+  if (CAMP && !CAMP.between) { newGame('run', CAMP); return; } // mid-season: that season over, as Reset does (storage may not have it)
   campLeave(); campStart();
 }
 campMenu();

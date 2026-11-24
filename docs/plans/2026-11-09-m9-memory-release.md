@@ -114,7 +114,7 @@ As built (2026-11-23): see docs/summaries/SESSION-2026-11-23-generations.md.
 - Heal: 300 sim seconds, measured with tune.js `campaign` (the numbers are by GEN in sim.js and in the handoff). It runs in a Web
   Worker (heal.js) started the moment a season ends, so it is mostly done while the end card is read; the heal card then plays
   its 12 snapshots back (a bar and a clock: "Left alone 2:30 of 5:00"). No worker (file://, or it fails): the page steps it.
-- campaign.js: menu entry Generations; a season is run mode plus CAMP. Saved (localStorage key deep-tide.generations, ~120-200
+- generations.js: menu entry Generations; a season is run mode plus CAMP. Saved (localStorage key deep-tide.generations, ~120-200
   KB, versioned) at a season's end and after the heal; nothing during play, so a reload mid-season starts that season over.
   The end card adds the first ocean next to this one (two pictures from the timelapse recorder, counts, biodiversity, water) and
   the scores so far; the final screen (after season 5, or on abandoning after at least one season) gives the campaign score

@@ -508,6 +508,25 @@ async function installable(b) {
       return { same: viaWorker === ${FP2}, snaps: snaps.length }; })()`;
     const hb = await p.evaluate(healBoth).catch(e => ({ err: e.message }));
     check('generations: the heal in the worker ends on exactly the ocean the page gets stepping it', hb.same && hb.snaps === 5, JSON.stringify(hb));
+    // the page's whole worker path: the season ends, the worker heals while the end card is up (the next season is saved),
+    // the heal card plays its snapshots, season 2 starts on the ocean the page's own heal of the saved end gives
+    await p.goto(base + '?seed=wk-e2e'); await wait(p, 300);
+    await p.evaluate(`try { localStorage.removeItem('deep-tide.generations'); } catch (e) {} RUN.DUR = 60; window.FP2 = () => ${FP2}; { const o = campSetup; campSetup = seed => { o(seed); window.__startFP = FP2(); }; }`);
+    await p.click('[data-mode=gen]'); await wait(p, 200); await p.evaluate(() => setHints(false));
+    await p.evaluate(() => { paused = true; let k = 0; while (!S.game.over) { if (k % 30 === 0) netAt(1000, 300, 50); if (k === 300) startTrawl(450); k++; step(1 / 30); stepDeep(1 / 30); tlStep(); } tlStep(true); showEnd(); });
+    const usedWorker = await count(p, () => !!(CAMP.heal && CAMP.heal.worker)), endTxt = await p.evaluate(() => localStorage.getItem('deep-tide.generations'));
+    const bg = await waitFor(p, () => CAMP.between === 'end' && CAMP.rec.phase === 'play' && CAMP.rec.season === 2, 60000);
+    await p.evaluate(() => { window.__loads = 0; const lo = loadOcean; loadOcean = o => { window.__loads++; return lo(o); }; }); // counts what the heal card shows
+    await press(p, '#campOn');
+    const ready = await waitFor(p, () => CAMP.between === 'ready', 20000), played = await count(p, () => window.__loads >= 12); // 11 snapshots and the end
+    await press(p, '#campGo'); await wait(p, 50);
+    const viaWorker = await count(p, () => window.__startFP);
+    const viaMain = await p.evaluate(`(() => { const r = JSON.parse(${JSON.stringify(endTxt)}, jsonUnpack);
+      loadOcean(r.ocean); loadDeep(r.deep); startHeal(r.seed + '.h1'); seedDeep(r.seed + '.h1'); for (let i = 0, n = healSteps(); i < n; i++) { step(1 / 30); stepDeep(1 / 30); }
+      const o = JSON.parse(JSON.stringify(oceanState(), jsonPack), jsonUnpack), d = JSON.parse(JSON.stringify(deepState(), jsonPack), jsonUnpack);
+      resetWorld(r.seed + '.s2'); resetDeep(r.seed + '.s2'); loadOcean(o); loadDeep(d); beginSeason(r.seed + '.s2'); seedDeep(r.seed + '.s2'); return ${FP2}; })()`);
+    check('generations (http): the worker heals while the end card is up, the heal card plays it back, season 2 starts on the page\'s own result', usedWorker && bg && played && ready && viaWorker === viaMain,
+      JSON.stringify({ usedWorker, bg, played, ready, same: viaWorker === viaMain }));
     errorCheck('install');
     // the server goes away (a real failure for the worker's fetch, not only for the page's)
     await new Promise(r => { srv.close(r); srv.closeAllConnections(); });
@@ -694,7 +713,7 @@ async function timelapse(b) {
   await q.close();
 }
 
-// M9 part 5 Generations (campaign.js, sim.js startHeal/beginSeason/oceanState, deep.js deepState, heal.js)
+// M9 part 5 Generations (generations.js, sim.js startHeal/beginSeason/oceanState, deep.js deepState, heal.js)
 // The Anthropocene run must not change: a scripted fixed-seed run with every tool, the code before part 5 (GOLDEN_REF, read
 // from git) against the code now, both headless in this node. Not a stored number: node's V8 and the browser's do not agree
 // bit for bit over a long run (an untouched ocean drifts apart after ~40 s between node 22 and Chromium 156; old and new
@@ -740,16 +759,19 @@ const GEN_S2 = s2 => `const act2 = { 10: () => startTrawl(300), 50: () => loseNe
     if (k >= 30 * 100 && k < 30 * 108) dumpAt(700, 300, 1 / 30, 'runoff');
     step(1 / 30); stepDeep(1 / 30);
   }`;
+// arrivals come after a step's count (stepRecolonize, the deep's immigration), so on a boundary step S.counts / D.counts can be
+// stale: the same arrivals on both paths, at the season's end (ARRIVE1) and after the heal (ARRIVE2)
+const ARRIVE1 = `arrive(GRAZER, 2); D.agents.push(makeDeep('lantern', 40, 1200));`, ARRIVE2 = `arrive(HUNTER, 1); D.agents.push(makeDeep('crab', 60, 2300));`;
 // never saved: the boundaries applied to the live sim
-const GEN_LIVE = (seed, s2) => `(() => { resetWorld('${seed}.s1'); resetDeep('${seed}.s1'); startRun(); ${GEN_S1}
+const GEN_LIVE = (seed, s2, both = true) => `(() => { resetWorld('${seed}.s1'); resetDeep('${seed}.s1'); startRun(); ${GEN_S1} ${ARRIVE1}
   const end = ${FP2}; startHeal('${seed}.h1'); seedDeep('${seed}.h1'); for (let i = 0, n = healSteps(); i < n; i++) { step(1 / 30); stepDeep(1 / 30); }
-  const healed = ${FP2}; beginSeason('${seed}.s2'); seedDeep('${seed}.s2'); startRun(); const start = ${FP2}; ${GEN_S2(s2)}
+  ${both ? ARRIVE2 : ''} const healed = ${FP2}; beginSeason('${seed}.s2'); seedDeep('${seed}.s2'); startRun(); const start = ${FP2}; ${GEN_S2(s2)}
   return JSON.stringify({ end, healed, start, s2: ${FP2}, haul: S.game.mins.map(m => m.haul).concat(S.game.haul) }); })()`;
 // saved and loaded through JSON at both boundaries (what the page writes to localStorage)
 const GEN_SAVED = (seed, s2) => `(() => { const RT = () => { const o = JSON.stringify(oceanState(), jsonPack), d = JSON.stringify(deepState(), jsonPack); loadOcean(JSON.parse(o, jsonUnpack)); loadDeep(JSON.parse(d, jsonUnpack)); };
-  resetWorld('${seed}.s1'); resetDeep('${seed}.s1'); startRun(); ${GEN_S1}
+  resetWorld('${seed}.s1'); resetDeep('${seed}.s1'); startRun(); ${GEN_S1} ${ARRIVE1}
   const end = ${FP2}; RT(); startHeal('${seed}.h1'); seedDeep('${seed}.h1'); for (let i = 0, n = healSteps(); i < n; i++) { step(1 / 30); stepDeep(1 / 30); }
-  const healed = ${FP2}; RT(); beginSeason('${seed}.s2'); seedDeep('${seed}.s2'); startRun(); const start = ${FP2}; ${GEN_S2(s2)}
+  ${ARRIVE2} const healed = ${FP2}; RT(); beginSeason('${seed}.s2'); seedDeep('${seed}.s2'); startRun(); const start = ${FP2}; ${GEN_S2(s2)}
   return JSON.stringify({ end, healed, start, s2: ${FP2}, haul: S.game.mins.map(m => m.haul).concat(S.game.haul) }); })()`;
 async function press(p, sel) { const el = await p.waitForSelector(sel, { state: 'visible', timeout: 5000 }); await el.scrollIntoViewIfNeeded(); await p.click(sel); }
 const genSave = p => p.evaluate(() => { try { const t = localStorage.getItem('deep-tide.generations'); return t ? { len: t.length, rec: JSON.parse(t, jsonUnpack) } : null; } catch (e) { return 'throws'; } });
@@ -761,7 +783,7 @@ async function generations(b) {
   console.log('generations');
   // determinism, headless with the real heal: a save and load at the season's end and after the heal changes nothing after
   const A = JSON.parse(simContext().run(GEN_LIVE('gd', 100))), B = JSON.parse(simContext().run(GEN_SAVED('gd', 100)));
-  check('generations: saved and loaded at the season\'s end, the heal ends on the same ocean (headless, the full heal)', A.end === B.end && A.healed === B.healed, JSON.parse(A.healed).c.join(' '));
+  check('generations: saved and loaded at the season\'s end, the heal ends on the same ocean (headless, the full heal, arrivals on the last step)', A.end === B.end && A.healed === B.healed, JSON.parse(A.healed).c.join(' '));
   check('generations: saved and loaded after the heal, season 2 plays the same (100 s with every tool)', A.start === B.start && A.s2 === B.s2 && JSON.stringify(A.haul) === JSON.stringify(B.haul));
   check('generations: the heal is a real change (the ocean after it differs from the season\'s end)', A.end !== A.healed);
 
@@ -790,11 +812,11 @@ async function generations(b) {
 
   // the page's own path (save to localStorage, heal, read it back as after a reload, newGame) against the live path. The heal is
   // shortened here (the full one is checked headless above): GEN.HEAL 60
-  const live = await p.evaluate(`(() => { GEN.HEAL = 60; return ${GEN_LIVE('gen-ui', 200)}; })()`);
+  const live = await p.evaluate(`(() => { GEN.HEAL = 60; return ${GEN_LIVE('gen-ui', 200, false)}; })()`);
   await p.evaluate(() => { campLeave(); campClear(); newGame('run'); }); // a plain run, so the campaign starts from the menu path below
   await p.evaluate(() => { campNew(); paused = true; GEN.HEAL = 60; });
   await p.evaluate(GEN_S1.replace(/^/, '(() => { ') + ' })()'); // season 1, scripted, to its end
-  await p.evaluate(() => { tlStep(true); showEnd(); });
+  await p.evaluate(`tlStep(true); ${ARRIVE1} showEnd();`);
   const endSave = await genSave(p);
   check('generations: at the season\'s end the save holds the ocean, the score and season 1\'s numbers, and no timelapse', endSave && endSave.rec.phase === 'heal' && endSave.rec.seasons.length === 1 && !!endSave.rec.ocean && !!endSave.rec.first && endSave.len < 400000,
     endSave && Math.round(endSave.len / 1024) + ' KB');
@@ -814,8 +836,6 @@ async function generations(b) {
   check('generations: the season\'s end card says which season, puts the first ocean next to this one (pictures and counts)', await waitFor(p, () =>
     /Season 1 of 5 is over/.test(document.querySelector('#endCard h2').textContent) && document.querySelectorAll('.cmpt tr').length >= 9
     && /^data:image\/jpeg/.test(document.getElementById('cmpFirst').src) && /^blob:/.test(document.getElementById('cmpNow').src) && /Saved in this browser/.test(document.getElementById('endCard').textContent)));
-  const picSave = await genSave(p);
-  check('generations: the save keeps season 1\'s first picture (small), never the timelapse', picSave && /^data:image\/jpeg/.test(picSave.rec.first.pic) && picSave.rec.first.pic.length < 40000 && (JSON.stringify(picSave.rec).match(/data:image/g) || []).length === 1, picSave && Math.round(picSave.rec.first.pic.length / 1024) + ' KB picture, ' + Math.round(picSave.len / 1024) + ' KB in all');
   await shot(p, '9-gen-end');
   await p.evaluate(() => document.getElementById('pause').click()); // (the guard, not the UI: the card covers the toolbar)
   check('generations: between seasons the game cannot be unpaused', await count(p, () => paused));
@@ -823,6 +843,8 @@ async function generations(b) {
   check('generations: the heal card shows time passing, and the log is cleared', await count(p, () => CAMP.between === 'heal' && /stays in port/.test(document.querySelector('#endCard h2').textContent) && !!document.getElementById('healClock') && !logEl.children.length));
   await wait(p, 400); await shot(p, '9-gen-heal');
   check('generations: the heal ends on the next season\'s card', await waitFor(p, () => CAMP.between === 'ready'));
+  const picSave = await genSave(p), pic = picSave && picSave.rec.first && picSave.rec.first.pic || '';
+  check('generations: the save after the heal keeps season 1\'s first picture (small), never the timelapse', /^data:image\/jpeg/.test(pic) && pic.length < 40000 && (JSON.stringify(picSave.rec).match(/data:image/g) || []).length === 1, Math.round(pic.length / 1024) + ' KB picture, ' + Math.round((picSave ? picSave.len : 0) / 1024) + ' KB in all');
   check('generations: the ready card says what changed while it was left alone', await count(p, () => /Season 2 of 5/.test(document.querySelector('#endCard h2').textContent) && /left alone/.test(document.getElementById('endCard').textContent) && /→/.test(document.getElementById('endCard').textContent)));
   await shot(p, '9-gen-ready');
   await press(p, '#campGo'); await wait(p, 300);
@@ -835,6 +857,8 @@ async function generations(b) {
   await p.evaluate(`window.FP2 = () => ${FP2}; GEN.HEAL = 60; { const o = campSetup; campSetup = seed => { o(seed); window.__startFP = FP2(); }; }`);
   check('generations: after a reload the menu offers to continue season 2, and to abandon', await count(p, () => /season 2 of 5/.test(document.getElementById('genSub').textContent) && !document.getElementById('genSaved').hidden));
   await p.click('[data-mode=gen]'); await wait(p, 300);
+  check('generations: continued after a reload, season 2 opens on its ready card (time passed)', await count(p, () => CAMP.between === 'ready' && !endEl.hidden && menuEl.hidden && paused && hudEl.hidden && /Season 2 of 5/.test(document.querySelector('#endCard h2').textContent) && /left alone/.test(document.getElementById('endCard').textContent)));
+  await press(p, '#campGo'); await wait(p, 200);
   check('generations: continued after a reload, season 2 starts from exactly the saved ocean', (await count(p, () => SEED === 'gen-ui.s2' && window.__startFP)) === s2.fp);
   await p.evaluate(() => setHints(false));
   await toSeasonEnd(p); await wait(p, 500);
@@ -898,10 +922,58 @@ async function generations(b) {
     await q.addInitScript(init); await q.goto(URL + '?seed=gen-st'); await wait(q, 300);
     await q.evaluate(() => { GEN.HEAL = 10; }); await q.click('[data-mode=gen]'); await wait(q, 200); await q.evaluate(() => setHints(false));
     await toSeasonEnd(q); await wait(q, 400);
-    const said = await count(q, () => /would not keep it/.test(document.getElementById('endCard').textContent) && CAMP.saved === false);
+    const said = await count(q, () => /would not keep the latest save/.test(document.getElementById('endCard').textContent) && CAMP.saved === false);
     await press(q, '#campOn'); await waitFor(q, () => CAMP.between === 'ready'); await press(q, '#campGo'); await wait(q, 200);
     check('generations (storage ' + name + '): the campaign plays on into season 2 and says it cannot be kept', said && await count(q, () => SEED === 'gen-st.s2' && S.events[0].msg === 'The water is calm.'));
+    await q.click('#menuBtn'); await wait(q, 150); await q.click('[data-mode=gen]'); await wait(q, 200);
+    check('generations (storage ' + name + '): Generations from the menu mid-season starts that season over, not a new campaign', await count(q, () => SEED === 'gen-st.s2' && CAMP.rec.season === 2 && S.t < 1));
     errorCheck('generations storage ' + name);
+    await q.close();
+  }
+  // storage that refuses a write keeps the save before it: here every write after the season's end is refused
+  {
+    const q = await b.newPage({ viewport: { width: 1280, height: 800 } });
+    q.on('pageerror', e => errors.push(String(e))); q.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await q.addInitScript(() => { const set = Storage.prototype.setItem; window.__allow = true; Storage.prototype.setItem = function (k, v) { if (!window.__allow) throw new DOMException('full', 'QuotaExceededError'); return set.call(this, k, v); }; });
+    await q.goto(URL + '?seed=gen-rf'); await wait(q, 300);
+    await q.evaluate(`GEN.HEAL = 20; window.FP2 = () => ${FP2}; { const o = campSetup; campSetup = seed => { o(seed); window.__startFP = FP2(); }; }`);
+    await q.click('[data-mode=gen]'); await wait(q, 200); await q.evaluate(() => setHints(false));
+    await toSeasonEnd(q); await q.evaluate(() => { window.__allow = false; });
+    await press(q, '#campOn'); await waitFor(q, () => CAMP.between === 'ready'); await press(q, '#campGo'); await wait(q, 200);
+    const first = await count(q, () => window.__startFP), kept = await genSave(q);
+    check('generations (a write refused): the save from the season\'s end stays, and the card says the latest was not kept', kept && kept.rec.phase === 'heal' && kept.rec.season === 1 && await count(q, () => CAMP.saved === false));
+    await q.reload(); await wait(q, 300);
+    await q.evaluate(`GEN.HEAL = 20; window.FP2 = () => ${FP2}; { const o = campSetup; campSetup = seed => { o(seed); window.__startFP = FP2(); }; }`);
+    await q.click('[data-mode=gen]'); await waitFor(q, () => CAMP.between === 'ready'); await press(q, '#campGo'); await wait(q, 200);
+    check('generations (a write refused): after a reload it heals again from that save to the same season 2', (await count(q, () => SEED === 'gen-rf.s2' && window.__startFP)) === first);
+    errorCheck('generations refused write');
+    await q.close();
+  }
+  // full, but not for a save without its pictures: the pictures go, the campaign is kept
+  {
+    const q = await b.newPage({ viewport: { width: 1280, height: 800 } });
+    q.on('pageerror', e => errors.push(String(e))); q.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await q.addInitScript(() => { const set = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (/data:image/.test(v)) throw new DOMException('full', 'QuotaExceededError'); return set.call(this, k, v); }; });
+    await q.goto(URL + '?seed=gen-np'); await wait(q, 300);
+    await q.evaluate(() => { GEN.HEAL = 20; }); await q.click('[data-mode=gen]'); await wait(q, 200); await q.evaluate(() => setHints(false));
+    await toSeasonEnd(q); await waitFor(q, () => CAMP.rec.first.pic);
+    await press(q, '#campOn'); await waitFor(q, () => CAMP.between === 'ready');
+    const np = await genSave(q);
+    check('generations (full for pictures): the next season is saved without the pictures, and says it is saved', np && np.rec.phase === 'play' && np.rec.season === 2 && !np.rec.first.pic && await count(q, () => CAMP.saved && /^data:image/.test(CAMP.rec.first.pic)));
+    errorCheck('generations no pictures');
+    await q.close();
+  }
+  // a save that looks right but does not load (a grid of the wrong size): Generations starts a new campaign instead of failing
+  {
+    const q = await b.newPage({ viewport: { width: 1280, height: 800 } });
+    q.on('pageerror', e => errors.push(String(e))); q.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await q.addInitScript(() => { if (!sessionStorage.getItem('x')) { sessionStorage.setItem('x', 1); const sum = { counts: [1, 1, 1, 1, 0, 1, 1, 1], present: 7, bio: 0.9, water: 1 };
+      localStorage.setItem('deep-tide.generations', JSON.stringify({ v: 1, seed: 'dmg', season: 2, phase: 'play', seasons: [{ score: 1, lost: [], ...sum }], first: { ...sum, pic: null },
+        ocean: { v: 1, agents: { keys: [], rows: [] }, poll: [1, 2, 3] }, deep: { agents: { keys: [], rows: [] } } })); } });
+    await q.goto(URL + '?seed=gen-dmg'); await wait(q, 300);
+    await q.click('[data-mode=gen]'); await wait(q, 300);
+    check('generations (damaged save): Generations starts a new campaign, and the menu will say the old one could not be continued', await count(q, () => SEED === 'gen-dmg.s1' && !CAMP.between && campOld && endEl.hidden && menuEl.hidden));
+    errorCheck('generations damaged save');
     await q.close();
   }
   // a save from an older version is not continued: the menu says so, and Generations starts a new campaign
